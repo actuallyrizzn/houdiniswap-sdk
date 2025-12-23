@@ -1,14 +1,28 @@
 """Main client for Houdini Swap API."""
 
-import requests
+import logging
+import os
+import time
 from typing import Optional, List, Dict, Any, TypeGuard
 from urllib.parse import urljoin
 
+import requests
+
 from .constants import (
+    BASE_URL_PRODUCTION,
     DEFAULT_TIMEOUT,
     DEFAULT_PAGE_SIZE,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_BACKOFF_FACTOR,
+    DEFAULT_CACHE_TTL,
+    ENV_VAR_API_URL,
     HTTP_STATUS_BAD_REQUEST,
     HTTP_STATUS_UNAUTHORIZED,
+    HTTP_STATUS_TOO_MANY_REQUESTS,
+    HTTP_STATUS_INTERNAL_SERVER_ERROR,
+    HTTP_STATUS_BAD_GATEWAY,
+    HTTP_STATUS_SERVICE_UNAVAILABLE,
+    HTTP_STATUS_GATEWAY_TIMEOUT,
     ENDPOINT_TOKENS,
     ENDPOINT_DEX_TOKENS,
     ENDPOINT_QUOTE,
@@ -86,6 +100,11 @@ class HoudiniSwapClient:
         api_secret: str,
         base_url: Optional[str] = None,
         timeout: Optional[int] = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_backoff_factor: float = DEFAULT_RETRY_BACKOFF_FACTOR,
+        cache_enabled: bool = True,
+        cache_ttl: int = DEFAULT_CACHE_TTL,
+        log_level: Optional[int] = None,
     ):
         """
         Initialize the Houdini Swap client.
@@ -93,8 +112,14 @@ class HoudiniSwapClient:
         Args:
             api_key: Your Houdini Swap API key
             api_secret: Your Houdini Swap API secret
-            base_url: Optional custom base URL (defaults to production)
+            base_url: Optional custom base URL. If not provided, checks HOUDINI_SWAP_API_URL
+                     environment variable, then defaults to production URL.
             timeout: Request timeout in seconds (default: 30, see DEFAULT_TIMEOUT constant)
+            max_retries: Maximum number of retry attempts for failed requests (default: 3)
+            retry_backoff_factor: Multiplier for exponential backoff (default: 1.0)
+            cache_enabled: Enable caching for token lists (default: True)
+            cache_ttl: Cache time-to-live in seconds (default: 300 = 5 minutes)
+            log_level: Logging level (logging.DEBUG, INFO, WARNING, ERROR). Default: WARNING.
         
         Raises:
             ValidationError: If api_key or api_secret is empty or None
@@ -102,9 +127,11 @@ class HoudiniSwapClient:
         Edge Cases:
             - Empty strings are treated as invalid credentials
             - None values for api_key or api_secret will raise ValidationError
+            - Base URL can be set via environment variable HOUDINI_SWAP_API_URL
         
         Side Effects:
-            Creates a requests.Session() object and stores credentials as instance attributes
+            Creates a requests.Session() object and stores credentials as instance attributes.
+            Sets up logging if log_level is provided.
         """
         if not api_key or not api_secret:
             raise ValidationError(ERROR_INVALID_CREDENTIALS)
@@ -114,8 +141,33 @@ class HoudiniSwapClient:
         
         self.api_key = api_key
         self.api_secret = api_secret
-        self.base_url = base_url or self.BASE_URL
+        
+        # Base URL resolution: parameter > environment variable > default
+        if base_url:
+            self.base_url = base_url
+        else:
+            self.base_url = os.getenv(ENV_VAR_API_URL, self.BASE_URL)
+        
         self.timeout = timeout or DEFAULT_TIMEOUT
+        self.max_retries = max_retries
+        self.retry_backoff_factor = retry_backoff_factor
+        
+        # Caching configuration
+        self.cache_enabled = cache_enabled
+        self.cache_ttl = cache_ttl
+        self._token_cache: Dict[str, tuple] = {}  # key -> (data, timestamp)
+        
+        # Setup logging
+        self.logger = logging.getLogger("houdiniswap")
+        if log_level is not None:
+            self.logger.setLevel(log_level)
+            # Add handler if none exists
+            if not self.logger.handlers:
+                handler = logging.StreamHandler()
+                handler.setFormatter(logging.Formatter(
+                    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                ))
+                self.logger.addHandler(handler)
         
         # Create session with authentication
         self.session = requests.Session()
@@ -148,6 +200,13 @@ class HoudiniSwapClient:
         if not api_key.strip() or not api_secret.strip():
             raise ValidationError(ERROR_INVALID_CREDENTIALS)
     
+    def _redact_credentials(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Redact credentials from data for logging."""
+        redacted = dict(data)
+        if "Authorization" in redacted:
+            redacted["Authorization"] = "***REDACTED***"
+        return redacted
+    
     def _request(
         self,
         method: str,
@@ -156,7 +215,7 @@ class HoudiniSwapClient:
         json_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Make an HTTP request to the API.
+        Make an HTTP request to the API with automatic retries.
         
         Note: params and json_data are defensively copied to prevent mutation
         of caller's dictionaries. This ensures safe concurrent usage.
@@ -172,7 +231,7 @@ class HoudiniSwapClient:
             
         Raises:
             APIError: If the API returns an error
-            NetworkError: If a network error occurs
+            NetworkError: If a network error occurs after all retries
             AuthenticationError: If authentication fails
         """
         url = urljoin(self.base_url, endpoint.lstrip("/"))
@@ -182,48 +241,120 @@ class HoudiniSwapClient:
         safe_params = dict(params) if params else None
         safe_json_data = dict(json_data) if json_data else None
         
-        try:
-            response = self.session.request(
-                method=method,
-                url=url,
-                params=safe_params,
-                json=safe_json_data,
-                timeout=self.timeout,
-            )
-            
-            # Handle authentication errors
-            if response.status_code == HTTP_STATUS_UNAUTHORIZED:
-                raise AuthenticationError(ERROR_AUTHENTICATION_FAILED)
-            
-            # Handle other HTTP errors
-            if response.status_code >= HTTP_STATUS_BAD_REQUEST:
-                error_data = None
-                try:
-                    error_data = response.json()
-                    error_message = error_data.get("message", f"API error: {response.status_code}")
-                except ValueError:
-                    # JSON parsing failed - include raw response text (limit length)
-                    error_message = f"API error: {response.status_code} - {response.text[:500]}"
-                
-                raise APIError(
-                    error_message,
-                    status_code=response.status_code,
-                    response=error_data,
-                )
-            
-            # Parse JSON response
+        # Status codes that should trigger retries
+        retryable_statuses = [
+            HTTP_STATUS_TOO_MANY_REQUESTS,
+            HTTP_STATUS_INTERNAL_SERVER_ERROR,
+            HTTP_STATUS_BAD_GATEWAY,
+            HTTP_STATUS_SERVICE_UNAVAILABLE,
+            HTTP_STATUS_GATEWAY_TIMEOUT,
+        ]
+        
+        last_exception = None
+        
+        for attempt in range(self.max_retries + 1):
             try:
-                return response.json()
-            except ValueError:
-                # Some endpoints return non-JSON (e.g., boolean true)
-                return {"response": response.text}
+                # Log request (redact credentials)
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    log_data = {
+                        "method": method,
+                        "url": url,
+                        "params": safe_params,
+                        "json": safe_json_data,
+                    }
+                    self.logger.debug(f"Request: {self._redact_credentials(log_data)}")
                 
-        except requests.exceptions.RequestException as e:
-            raise NetworkError(ERROR_NETWORK.format(str(e))) from e
-        except (APIError, AuthenticationError):
-            raise
-        except Exception as e:
-            raise HoudiniSwapError(ERROR_UNEXPECTED.format(str(e))) from e
+                start_time = time.time()
+                response = self.session.request(
+                    method=method,
+                    url=url,
+                    params=safe_params,
+                    json=safe_json_data,
+                    timeout=self.timeout,
+                )
+                duration = time.time() - start_time
+                
+                # Log response
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    self.logger.debug(f"Response: {response.status_code} ({duration:.2f}s)")
+                
+                # Handle authentication errors (don't retry)
+                if response.status_code == HTTP_STATUS_UNAUTHORIZED:
+                    self.logger.warning("Authentication failed")
+                    raise AuthenticationError(ERROR_AUTHENTICATION_FAILED)
+                
+                # Handle retryable HTTP errors
+                if response.status_code in retryable_statuses:
+                    if attempt < self.max_retries:
+                        wait_time = self.retry_backoff_factor * (2 ** attempt)
+                        self.logger.warning(
+                            f"Retryable error {response.status_code} (attempt {attempt + 1}/{self.max_retries + 1}). "
+                            f"Retrying in {wait_time:.2f}s..."
+                        )
+                        time.sleep(wait_time)
+                        continue
+                
+                # Handle other HTTP errors (don't retry)
+                if response.status_code >= HTTP_STATUS_BAD_REQUEST:
+                    error_data = None
+                    try:
+                        error_data = response.json()
+                        error_message = error_data.get("message", f"API error: {response.status_code}")
+                    except ValueError:
+                        # JSON parsing failed - include raw response text (limit length)
+                        error_message = f"API error: {response.status_code} - {response.text[:500]}"
+                    
+                    self.logger.error(f"API error: {error_message}")
+                    raise APIError(
+                        error_message,
+                        status_code=response.status_code,
+                        response=error_data,
+                    )
+                
+                # Parse JSON response
+                try:
+                    result = response.json()
+                    if self.logger.isEnabledFor(logging.DEBUG):
+                        self.logger.debug(f"Request successful: {method} {endpoint}")
+                    return result
+                except ValueError:
+                    # Some endpoints return non-JSON (e.g., boolean true)
+                    return {"response": response.text}
+                    
+            except requests.exceptions.RequestException as e:
+                last_exception = e
+                if attempt < self.max_retries:
+                    wait_time = self.retry_backoff_factor * (2 ** attempt)
+                    self.logger.warning(
+                        f"Network error (attempt {attempt + 1}/{self.max_retries + 1}): {str(e)}. "
+                        f"Retrying in {wait_time:.2f}s..."
+                    )
+                    time.sleep(wait_time)
+                    continue
+                # Last attempt failed
+                self.logger.error(f"Network error after {self.max_retries + 1} attempts: {str(e)}")
+                raise NetworkError(ERROR_NETWORK.format(str(e))) from e
+            except (APIError, AuthenticationError):
+                # Don't retry these
+                raise
+            except Exception as e:
+                last_exception = e
+                if attempt < self.max_retries:
+                    wait_time = self.retry_backoff_factor * (2 ** attempt)
+                    self.logger.warning(
+                        f"Unexpected error (attempt {attempt + 1}/{self.max_retries + 1}): {str(e)}. "
+                        f"Retrying in {wait_time:.2f}s..."
+                    )
+                    time.sleep(wait_time)
+                    continue
+                # Last attempt failed
+                self.logger.error(f"Unexpected error after {self.max_retries + 1} attempts: {str(e)}")
+                raise HoudiniSwapError(ERROR_UNEXPECTED.format(str(e))) from e
+        
+        # Should never reach here, but just in case
+        if last_exception:
+            raise HoudiniSwapError(ERROR_UNEXPECTED.format(str(last_exception))) from last_exception
+        raise HoudiniSwapError("Request failed after all retries")
     
     def __enter__(self) -> "HoudiniSwapClient":
         """Enter context manager."""
@@ -240,9 +371,18 @@ class HoudiniSwapClient:
     
     # ==================== Token Information APIs ====================
     
+    def clear_cache(self) -> None:
+        """Clear the token cache."""
+        self._token_cache.clear()
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug("Token cache cleared")
+    
     def get_cex_tokens(self) -> List[Token]:
         """
         Get a list of tokens supported by Houdini Swap for CEX exchanges.
+        
+        Results are cached if caching is enabled (default: True) with TTL
+        (default: 5 minutes). Use clear_cache() to manually invalidate.
         
         Returns:
             List of Token objects
@@ -256,16 +396,38 @@ class HoudiniSwapClient:
         Edge Cases:
             - Returns empty list if API returns empty array
             - May raise APIError if API structure changes unexpectedly
+            - Cached results are returned if cache is enabled and not expired
         
         Performance:
-            Single HTTP GET request. Response time depends on API latency.
+            Single HTTP GET request (or cached result). Response time depends on API latency.
             Typically completes in < 1 second under normal conditions.
+            Cached results return immediately.
         
         Side Effects:
-            Makes a network request. No local state is modified.
+            Makes a network request if cache is disabled or expired. Updates cache if enabled.
         """
+        cache_key = "cex_tokens"
+        current_time = time.time()
+        
+        # Check cache
+        if self.cache_enabled and cache_key in self._token_cache:
+            cached_data, cached_time = self._token_cache[cache_key]
+            if current_time - cached_time < self.cache_ttl:
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    self.logger.debug(f"Returning cached CEX tokens (age: {current_time - cached_time:.1f}s)")
+                return cached_data
+        
+        # Fetch from API
         response = self._request("GET", ENDPOINT_TOKENS)
-        return [Token.from_dict(token_data) for token_data in response]
+        tokens = [Token.from_dict(token_data) for token_data in response]
+        
+        # Update cache
+        if self.cache_enabled:
+            self._token_cache[cache_key] = (tokens, current_time)
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug("Cached CEX tokens")
+        
+        return tokens
     
     def get_dex_tokens(
         self,
@@ -307,6 +469,18 @@ class HoudiniSwapClient:
         Side Effects:
             Makes a network request. No local state is modified.
         """
+        # Create cache key from parameters
+        cache_key = f"dex_tokens_{page}_{page_size}_{chain or 'all'}"
+        current_time = time.time()
+        
+        # Check cache
+        if self.cache_enabled and cache_key in self._token_cache:
+            cached_data, cached_time = self._token_cache[cache_key]
+            if current_time - cached_time < self.cache_ttl:
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    self.logger.debug(f"Returning cached DEX tokens (age: {current_time - cached_time:.1f}s)")
+                return cached_data
+        
         # Create fresh params dict for each call (no mutable defaults)
         # This pattern ensures thread-safety and prevents accidental mutations
         params = {
@@ -316,11 +490,20 @@ class HoudiniSwapClient:
         if chain:
             params["chain"] = chain
         
+        # Fetch from API
         response = self._request("GET", ENDPOINT_DEX_TOKENS, params=params)
-        return DEXTokensResponse(
+        result = DEXTokensResponse(
             count=response.get("count", 0),
             tokens=[DEXToken.from_dict(token_data) for token_data in response.get("tokens", [])],
         )
+        
+        # Update cache
+        if self.cache_enabled:
+            self._token_cache[cache_key] = (result, current_time)
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug(f"Cached DEX tokens (key: {cache_key})")
+        
+        return result
     
     # ==================== Quote APIs ====================
     
