@@ -1,4 +1,4 @@
-requests>=2.31.0
+requests>=2.31.0,<3.0.0
 
 # Testing dependencies (optional, install with: pip install -r requirements-dev.txt)
 # pytest>=7.0.0
