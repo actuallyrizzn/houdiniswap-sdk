@@ -707,8 +707,15 @@ class HoudiniSwapClient:
         self._sanitize_input(to_token, "to_token")
         self._sanitize_input(address_to, "address_to")
         
+        # Validate and convert amount
+        amount_decimal = self._normalize_amount_to_decimal(amount)
+        self._validate_amount(float(amount_decimal), "amount")
+        self._sanitize_input(from_token, "from_token")
+        self._sanitize_input(to_token, "to_token")
+        self._sanitize_input(address_to, "address_to")
+        
         json_data = {
-            "amount": amount,
+            "amount": float(amount_decimal),  # API expects number
             "from": from_token,
             "to": to_token,
             "addressTo": address_to,
@@ -733,7 +740,7 @@ class HoudiniSwapClient:
     
     def post_dex_exchange(
         self,
-        amount: float,
+        amount: Union[str, Decimal, float],
         token_id_from: str,
         token_id_to: str,
         address_from: str,
@@ -780,8 +787,18 @@ class HoudiniSwapClient:
             The transaction will be processed asynchronously. Use get_status() to check progress.
             May require token approval first (use post_dex_approve).
         """
+        # Validate and convert amount
+        amount_decimal = self._normalize_amount_to_decimal(amount)
+        self._validate_amount(float(amount_decimal), "amount")
+        self._validate_token_id(token_id_from, "token_id_from")
+        self._validate_token_id(token_id_to, "token_id_to")
+        self._sanitize_input(address_from, "address_from")
+        self._sanitize_input(address_to, "address_to")
+        self._sanitize_input(swap, "swap")
+        self._sanitize_input(quote_id, "quote_id")
+        
         json_data = {
-            "amount": amount,
+            "amount": float(amount_decimal),  # API expects number
             "tokenIdFrom": token_id_from,
             "tokenIdTo": token_id_to,
             "addressFrom": address_from,
