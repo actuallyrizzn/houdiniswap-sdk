@@ -1,0 +1,34 @@
+"""Constants for Houdini Swap SDK."""
+
+# HTTP Status Codes
+HTTP_STATUS_OK = 200
+HTTP_STATUS_BAD_REQUEST = 400
+HTTP_STATUS_UNAUTHORIZED = 401
+HTTP_STATUS_NOT_FOUND = 404
+HTTP_STATUS_TOO_MANY_REQUESTS = 429
+HTTP_STATUS_INTERNAL_SERVER_ERROR = 500
+
+# Default Values
+DEFAULT_TIMEOUT = 30  # seconds
+DEFAULT_PAGE_SIZE = 100
+
+# API Endpoints
+ENDPOINT_TOKENS = "/tokens"
+ENDPOINT_DEX_TOKENS = "/dexTokens"
+ENDPOINT_QUOTE = "/quote"
+ENDPOINT_DEX_QUOTE = "/dexQuote"
+ENDPOINT_EXCHANGE = "/exchange"
+ENDPOINT_DEX_EXCHANGE = "/dexExchange"
+ENDPOINT_DEX_APPROVE = "/dexApprove"
+ENDPOINT_DEX_CONFIRM_TX = "/dexConfirmTx"
+ENDPOINT_STATUS = "/status"
+ENDPOINT_MIN_MAX = "/minMax"
+ENDPOINT_VOLUME = "/volume"
+ENDPOINT_WEEKLY_VOLUME = "/weeklyVolume"
+
+# Error Messages
+ERROR_INVALID_CREDENTIALS = "API key and secret are required"
+ERROR_AUTHENTICATION_FAILED = "Invalid API key or secret"
+ERROR_NETWORK = "Network error: {}"
+ERROR_UNEXPECTED = "Unexpected error: {}"
+

@@ -19,7 +19,7 @@ class TransactionStatus(IntEnum):
     DELETED = 8
 
 
-@dataclass
+@dataclass(frozen=True)
 class Network:
     """Network/blockchain information."""
     name: str
@@ -48,9 +48,12 @@ class Network:
             chain_id=data.get("chainId"),
             icon=data.get("icon"),
         )
+    
+    def __repr__(self) -> str:
+        return f"Network(name='{self.name}', short_name='{self.short_name}')"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Token:
     """Token information."""
     id: str
@@ -99,9 +102,12 @@ class Token:
             has_fixed=data.get("hasFixed"),
             has_fixed_reverse=data.get("hasFixedReverse"),
         )
+    
+    def __repr__(self) -> str:
+        return f"Token(symbol='{self.symbol}', name='{self.name}', id='{self.id}')"
 
 
-@dataclass
+@dataclass(frozen=True)
 class DEXToken:
     """DEX token information."""
     id: str
@@ -130,9 +136,12 @@ class DEXToken:
             enabled=data.get("enabled"),
             has_dex=data.get("hasDex"),
         )
+    
+    def __repr__(self) -> str:
+        return f"DEXToken(symbol='{self.symbol}', name='{self.name}', chain='{self.chain}')"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Quote:
     """Quote information."""
     amount_in: float
@@ -159,9 +168,12 @@ class Quote:
             is_mobile=data.get("isMobile"),
             client_id=data.get("clientId"),
         )
+    
+    def __repr__(self) -> str:
+        return f"Quote(amount_in={self.amount_in}, amount_out={self.amount_out})"
 
 
-@dataclass
+@dataclass(frozen=True)
 class DEXQuote:
     """DEX quote information."""
     swap: str
@@ -188,9 +200,12 @@ class DEXQuote:
             path=data.get("path"),
             raw=data.get("raw"),
         )
+    
+    def __repr__(self) -> str:
+        return f"DEXQuote(quote_id='{self.quote_id}', amount_out={self.amount_out}, swap='{self.swap}')"
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExchangeResponse:
     """Exchange transaction response."""
     houdini_id: str
@@ -243,9 +258,12 @@ class ExchangeResponse:
             metadata=data.get("metadata"),
             is_dex=data.get("isDex"),
         )
+    
+    def __repr__(self) -> str:
+        return f"ExchangeResponse(houdini_id='{self.houdini_id}', status={self.status}, in_amount={self.in_amount})"
 
 
-@dataclass
+@dataclass(frozen=True)
 class DexApproveResponse:
     """DEX approve transaction response."""
     data: str
@@ -262,9 +280,12 @@ class DexApproveResponse:
             from_address=data.get("from", ""),
             from_chain=data.get("fromChain"),
         )
+    
+    def __repr__(self) -> str:
+        return f"DexApproveResponse(to='{self.to}', from_address='{self.from_address}')"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Status:
     """Transaction status information."""
     houdini_id: str
@@ -298,9 +319,12 @@ class Status:
             out_symbol=data.get("outSymbol"),
             eta=data.get("eta"),
         )
+    
+    def __repr__(self) -> str:
+        return f"Status(houdini_id='{self.houdini_id}', status={self.status.name})"
 
 
-@dataclass
+@dataclass(frozen=True)
 class MinMax:
     """Min-Max exchange amounts."""
     min: float
@@ -312,9 +336,12 @@ class MinMax:
         if len(data) < 2:
             raise ValueError("MinMax requires at least 2 elements")
         return cls(min=data[0], max=data[1])
+    
+    def __repr__(self) -> str:
+        return f"MinMax(min={self.min}, max={self.max})"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Volume:
     """Volume information."""
     count: int
@@ -327,9 +354,22 @@ class Volume:
             count=data.get("count", 0),
             total_transacted_usd=data.get("totalTransactedUSD", 0.0),
         )
+    
+    def __repr__(self) -> str:
+        return f"Volume(count={self.count}, total_transacted_usd={self.total_transacted_usd})"
 
 
-@dataclass
+@dataclass(frozen=True)
+class DEXTokensResponse:
+    """Response from get_dex_tokens() containing paginated token list."""
+    count: int
+    tokens: List[DEXToken]
+    
+    def __repr__(self) -> str:
+        return f"DEXTokensResponse(count={self.count}, tokens={len(self.tokens)})"
+
+
+@dataclass(frozen=True)
 class WeeklyVolume:
     """Weekly volume information."""
     count: int
@@ -350,4 +390,7 @@ class WeeklyVolume:
             year=data.get("year", 0),
             commission=data.get("commission", 0.0),
         )
+    
+    def __repr__(self) -> str:
+        return f"WeeklyVolume(week={self.week}/{self.year}, volume={self.volume}, count={self.count})"
 
