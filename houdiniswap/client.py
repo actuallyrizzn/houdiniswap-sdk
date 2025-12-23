@@ -36,6 +36,7 @@ from .exceptions import (
 from .models import (
     Token,
     DEXToken,
+    DEXTokensResponse,
     Quote,
     DEXQuote,
     ExchangeResponse,
@@ -219,7 +220,7 @@ class HoudiniSwapClient:
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
         chain: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> DEXTokensResponse:
         """
         Get a list of tokens supported for DEX exchanges.
         
@@ -229,7 +230,12 @@ class HoudiniSwapClient:
             chain: Chain short name (e.g., "base") - optional
             
         Returns:
-            Dictionary with 'count' (int) and 'tokens' (List[DEXToken]) keys
+            DEXTokensResponse object with count and tokens fields
+        
+        Note:
+            CEX methods use token symbols (e.g., "ETH", "BNB") while DEX methods
+            use token IDs (e.g., "6689b73ec90e45f3b3e51553"). This reflects the
+            underlying API differences.
         
         Raises:
             APIError: If the API returns an error response (status >= 400)
@@ -259,10 +265,10 @@ class HoudiniSwapClient:
             params["chain"] = chain
         
         response = self._request("GET", ENDPOINT_DEX_TOKENS, params=params)
-        return {
-            "count": response.get("count", 0),
-            "tokens": [DEXToken.from_dict(token_data) for token_data in response.get("tokens", [])],
-        }
+        return DEXTokensResponse(
+            count=response.get("count", 0),
+            tokens=[DEXToken.from_dict(token_data) for token_data in response.get("tokens", [])],
+        )
     
     # ==================== Quote APIs ====================
     

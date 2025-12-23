@@ -360,6 +360,16 @@ class Volume:
 
 
 @dataclass(frozen=True)
+class DEXTokensResponse:
+    """Response from get_dex_tokens() containing paginated token list."""
+    count: int
+    tokens: List[DEXToken]
+    
+    def __repr__(self) -> str:
+        return f"DEXTokensResponse(count={self.count}, tokens={len(self.tokens)})"
+
+
+@dataclass(frozen=True)
 class WeeklyVolume:
     """Weekly volume information."""
     count: int

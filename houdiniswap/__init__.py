@@ -8,6 +8,7 @@ from .client import HoudiniSwapClient
 from .models import (
     Token,
     DEXToken,
+    DEXTokensResponse,
     Network,
     Quote,
     DEXQuote,
@@ -32,6 +33,7 @@ __all__ = [
     "HoudiniSwapClient",
     "Token",
     "DEXToken",
+    "DEXTokensResponse",
     "Network",
     "Quote",
     "DEXQuote",

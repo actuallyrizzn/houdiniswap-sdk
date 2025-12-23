@@ -69,7 +69,8 @@ result = client.get_dex_tokens(
     page_size=100,
     chain="base"  # Optional
 )
-# Returns: Dict with 'count' and 'tokens' (List[DEXToken])
+# Returns: DEXTokensResponse with count and tokens fields
+# Note: DEX methods use token IDs, while CEX methods use token symbols
 ```
 
 ### Quote APIs
