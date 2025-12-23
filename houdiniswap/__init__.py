@@ -7,25 +7,45 @@ A comprehensive Python SDK for interacting with the Houdini Swap API.
 from .client import HoudiniSwapClient
 from .models import (
     Token,
+    DEXToken,
     Network,
     Quote,
+    DEXQuote,
     ExchangeResponse,
+    DexApproveResponse,
     Status,
     Volume,
     WeeklyVolume,
     MinMax,
+    TransactionStatus,
+)
+from .exceptions import (
+    HoudiniSwapError,
+    AuthenticationError,
+    APIError,
+    ValidationError,
+    NetworkError,
 )
 
 __version__ = "0.1.0"
 __all__ = [
     "HoudiniSwapClient",
     "Token",
+    "DEXToken",
     "Network",
     "Quote",
+    "DEXQuote",
     "ExchangeResponse",
+    "DexApproveResponse",
     "Status",
     "Volume",
     "WeeklyVolume",
     "MinMax",
+    "TransactionStatus",
+    "HoudiniSwapError",
+    "AuthenticationError",
+    "APIError",
+    "ValidationError",
+    "NetworkError",
 ]
 

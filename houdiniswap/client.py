@@ -4,6 +4,28 @@ import requests
 from typing import Optional, List, Dict, Any
 from urllib.parse import urljoin
 
+from .constants import (
+    DEFAULT_TIMEOUT,
+    DEFAULT_PAGE_SIZE,
+    HTTP_STATUS_BAD_REQUEST,
+    HTTP_STATUS_UNAUTHORIZED,
+    ENDPOINT_TOKENS,
+    ENDPOINT_DEX_TOKENS,
+    ENDPOINT_QUOTE,
+    ENDPOINT_DEX_QUOTE,
+    ENDPOINT_EXCHANGE,
+    ENDPOINT_DEX_EXCHANGE,
+    ENDPOINT_DEX_APPROVE,
+    ENDPOINT_DEX_CONFIRM_TX,
+    ENDPOINT_STATUS,
+    ENDPOINT_MIN_MAX,
+    ENDPOINT_VOLUME,
+    ENDPOINT_WEEKLY_VOLUME,
+    ERROR_INVALID_CREDENTIALS,
+    ERROR_AUTHENTICATION_FAILED,
+    ERROR_NETWORK,
+    ERROR_UNEXPECTED,
+)
 from .exceptions import (
     HoudiniSwapError,
     AuthenticationError,
@@ -52,7 +74,7 @@ class HoudiniSwapClient:
         api_key: str,
         api_secret: str,
         base_url: Optional[str] = None,
-        timeout: int = 30,
+        timeout: Optional[int] = None,
     ):
         """
         Initialize the Houdini Swap client.
@@ -61,7 +83,7 @@ class HoudiniSwapClient:
             api_key: Your Houdini Swap API key
             api_secret: Your Houdini Swap API secret
             base_url: Optional custom base URL (defaults to production)
-            timeout: Request timeout in seconds (default: 30)
+            timeout: Request timeout in seconds (default: 30, see DEFAULT_TIMEOUT constant)
         
         Raises:
             ValidationError: If api_key or api_secret is empty or None
@@ -74,12 +96,12 @@ class HoudiniSwapClient:
             Creates a requests.Session() object and stores credentials as instance attributes
         """
         if not api_key or not api_secret:
-            raise ValidationError("API key and secret are required")
+            raise ValidationError(ERROR_INVALID_CREDENTIALS)
         
         self.api_key = api_key
         self.api_secret = api_secret
         self.base_url = base_url or self.BASE_URL
-        self.timeout = timeout
+        self.timeout = timeout or DEFAULT_TIMEOUT
         
         # Create session with authentication
         self.session = requests.Session()
@@ -132,11 +154,11 @@ class HoudiniSwapClient:
             )
             
             # Handle authentication errors
-            if response.status_code == 401:
-                raise AuthenticationError("Invalid API key or secret")
+            if response.status_code == HTTP_STATUS_UNAUTHORIZED:
+                raise AuthenticationError(ERROR_AUTHENTICATION_FAILED)
             
             # Handle other HTTP errors
-            if response.status_code >= 400:
+            if response.status_code >= HTTP_STATUS_BAD_REQUEST:
                 try:
                     error_data = response.json()
                     error_message = error_data.get("message", f"API error: {response.status_code}")
@@ -157,11 +179,11 @@ class HoudiniSwapClient:
                 return {"response": response.text}
                 
         except requests.exceptions.RequestException as e:
-            raise NetworkError(f"Network error: {str(e)}")
+            raise NetworkError(ERROR_NETWORK.format(str(e)))
         except (APIError, AuthenticationError):
             raise
         except Exception as e:
-            raise HoudiniSwapError(f"Unexpected error: {str(e)}")
+            raise HoudiniSwapError(ERROR_UNEXPECTED.format(str(e)))
     
     # ==================== Token Information APIs ====================
     
@@ -189,13 +211,13 @@ class HoudiniSwapClient:
         Side Effects:
             Makes a network request. No local state is modified.
         """
-        response = self._request("GET", "/tokens")
+        response = self._request("GET", ENDPOINT_TOKENS)
         return [Token.from_dict(token_data) for token_data in response]
     
     def get_dex_tokens(
         self,
         page: int = 1,
-        page_size: int = 100,
+        page_size: int = DEFAULT_PAGE_SIZE,
         chain: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -203,7 +225,7 @@ class HoudiniSwapClient:
         
         Args:
             page: Page number (default: 1)
-            page_size: Number of tokens per page (default: 100)
+            page_size: Number of tokens per page (default: 100, see DEFAULT_PAGE_SIZE constant)
             chain: Chain short name (e.g., "base") - optional
             
         Returns:
@@ -236,7 +258,7 @@ class HoudiniSwapClient:
         if chain:
             params["chain"] = chain
         
-        response = self._request("GET", "/dexTokens", params=params)
+        response = self._request("GET", ENDPOINT_DEX_TOKENS, params=params)
         return {
             "count": response.get("count", 0),
             "tokens": [DEXToken.from_dict(token_data) for token_data in response.get("tokens", [])],
@@ -295,7 +317,7 @@ class HoudiniSwapClient:
         if use_xmr is not None:
             params["useXmr"] = str(use_xmr).lower()
         
-        response = self._request("GET", "/quote", params=params)
+        response = self._request("GET", ENDPOINT_QUOTE, params=params)
         return Quote.from_dict(response)
     
     def get_dex_quote(
@@ -341,7 +363,7 @@ class HoudiniSwapClient:
             "tokenIdTo": token_id_to,
         }
         
-        response = self._request("GET", "/dexQuote", params=params)
+        response = self._request("GET", ENDPOINT_DEX_QUOTE, params=params)
         return [DEXQuote.from_dict(quote_data) for quote_data in response]
     
     # ==================== Exchange Execution APIs ====================
@@ -421,7 +443,7 @@ class HoudiniSwapClient:
         if use_xmr is not None:
             json_data["useXmr"] = use_xmr
         
-        response = self._request("POST", "/exchange", json_data=json_data)
+        response = self._request("POST", ENDPOINT_EXCHANGE, json_data=json_data)
         return ExchangeResponse.from_dict(response)
     
     def post_dex_exchange(
@@ -484,7 +506,7 @@ class HoudiniSwapClient:
             "route": route,
         }
         
-        response = self._request("POST", "/dexExchange", json_data=json_data)
+        response = self._request("POST", ENDPOINT_DEX_EXCHANGE, json_data=json_data)
         return ExchangeResponse.from_dict(response)
     
     # ==================== DEX Transaction Management APIs ====================
@@ -541,7 +563,7 @@ class HoudiniSwapClient:
             "route": route,
         }
         
-        response = self._request("POST", "/dexApprove", json_data=json_data)
+        response = self._request("POST", ENDPOINT_DEX_APPROVE, json_data=json_data)
         return [DexApproveResponse.from_dict(item) for item in response]
     
     def post_dex_confirm_tx(
@@ -564,7 +586,7 @@ class HoudiniSwapClient:
             "txHash": tx_hash,
         }
         
-        response = self._request("POST", "/dexConfirmTx", json_data=json_data)
+        response = self._request("POST", ENDPOINT_DEX_CONFIRM_TX, json_data=json_data)
         # API returns boolean true/false
         if isinstance(response, dict) and "response" in response:
             return response["response"].lower() == "true"
@@ -584,7 +606,7 @@ class HoudiniSwapClient:
         """
         # Create fresh params dict for each call (no mutable defaults)
         params = {"id": houdini_id}
-        response = self._request("GET", "/status", params=params)
+        response = self._request("GET", ENDPOINT_STATUS, params=params)
         # Add houdini_id to response if not present
         if "houdiniId" not in response:
             response["houdiniId"] = houdini_id
@@ -613,12 +635,12 @@ class HoudiniSwapClient:
         params = {
             "from": from_token,
             "to": to_token,
-            "anonymous": str(anonymous).lower(),
+            "anonymous": self._bool_to_str(anonymous),
         }
         if cex_only is not None:
-            params["cexOnly"] = str(cex_only).lower()
+            params["cexOnly"] = self._bool_to_str(cex_only)
         
-        response = self._request("GET", "/getMinMax", params=params)
+        response = self._request("GET", ENDPOINT_MIN_MAX, params=params)
         return MinMax.from_list(response)
     
     def get_volume(self) -> Volume:
@@ -628,7 +650,7 @@ class HoudiniSwapClient:
         Returns:
             Volume object
         """
-        response = self._request("GET", "/volume")
+        response = self._request("GET", ENDPOINT_VOLUME)
         # API returns array, get first element
         if isinstance(response, list) and len(response) > 0:
             return Volume.from_dict(response[0])
@@ -641,7 +663,7 @@ class HoudiniSwapClient:
         Returns:
             List of WeeklyVolume objects
         """
-        response = self._request("GET", "/weeklyVolume")
+        response = self._request("GET", ENDPOINT_WEEKLY_VOLUME)
         if isinstance(response, list):
             return [WeeklyVolume.from_dict(item) for item in response]
         return [WeeklyVolume.from_dict(response)]
