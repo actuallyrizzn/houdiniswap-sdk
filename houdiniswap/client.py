@@ -2,9 +2,10 @@
 
 import time
 import requests
-from typing import Optional, List, Dict, Any, TypeGuard, Callable
+from typing import Optional, List, Dict, Any, TypeGuard, Callable, Union
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from decimal import Decimal
 
 from .constants import (
     DEFAULT_TIMEOUT,
@@ -79,9 +80,23 @@ class HoudiniSwapClient:
         are synchronous and will block until a response is received or timeout occurs.
     
     Side Effects:
-        Creates and maintains an HTTP session. Credentials are stored in instance
-        attributes (consider security implications).
+        Creates and maintains an HTTP session. Credentials are stored securely
+        in private attributes to prevent direct access.
     """
+    
+    __slots__ = (
+        '_api_key',
+        '_api_secret',
+        'base_url',
+        'timeout',
+        'api_version',
+        'session',
+        'verify_ssl',
+        'logger',
+        'cache_enabled',
+        'cache_ttl',
+        '_token_cache',
+    )
     
     BASE_URL = "https://api-partner.houdiniswap.com"
     
@@ -92,6 +107,7 @@ class HoudiniSwapClient:
         base_url: Optional[str] = None,
         timeout: Optional[int] = None,
         api_version: Optional[str] = None,
+        verify_ssl: bool = True,
     ):
         """
         Initialize the Houdini Swap client.
@@ -102,6 +118,7 @@ class HoudiniSwapClient:
             base_url: Optional custom base URL (defaults to production)
             timeout: Request timeout in seconds (default: 30, see DEFAULT_TIMEOUT constant)
             api_version: API version to use (default: "v1"). Sent as X-API-Version header.
+            verify_ssl: Whether to verify SSL certificates (default: True). Set to False only for testing.
         
         Raises:
             ValidationError: If api_key or api_secret is empty or None
@@ -111,7 +128,7 @@ class HoudiniSwapClient:
             - None values for api_key or api_secret will raise ValidationError
         
         Side Effects:
-            Creates a requests.Session() object and stores credentials as instance attributes
+            Creates a requests.Session() object and stores credentials securely in private attributes
         """
         if not api_key or not api_secret:
             raise ValidationError(ERROR_INVALID_CREDENTIALS)
@@ -119,19 +136,38 @@ class HoudiniSwapClient:
         # Validate credentials format
         self._validate_credentials(api_key, api_secret)
         
-        self.api_key = api_key
-        self.api_secret = api_secret
+        # Store credentials in private attributes to prevent direct access
+        object.__setattr__(self, '_api_key', api_key)
+        object.__setattr__(self, '_api_secret', api_secret)
         self.base_url = base_url or self.BASE_URL
         self.timeout = timeout or DEFAULT_TIMEOUT
         self.api_version = api_version or API_VERSION_DEFAULT
+        self.verify_ssl = verify_ssl
         
-        # Create session with authentication
-        self.session = requests.Session()
+        # Create session with authentication and explicit SSL verification
+        object.__setattr__(self, 'session', requests.Session())
+        # Use private attributes for credentials in header
         self.session.headers.update({
-            "Authorization": f"{api_key}:{api_secret}",
+            "Authorization": f"{self._api_key}:{self._api_secret}",
             "Content-Type": "application/json",
             HEADER_API_VERSION: self.api_version,
         })
+        # Explicitly set SSL verification
+        self.session.verify = verify_ssl
+    
+    def __getattribute__(self, name: str):
+        """Prevent direct access to credentials."""
+        if name in ('api_key', 'api_secret'):
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{name}'. "
+                "Credentials are stored securely and cannot be accessed directly. "
+                "Use the client methods to interact with the API."
+            )
+        return object.__getattribute__(self, name)
+    
+    def __repr__(self) -> str:
+        """String representation that doesn't expose credentials."""
+        return f"<{self.__class__.__name__}(base_url='{self.base_url}')>"
     
     def _validate_credentials(self, api_key: str, api_secret: str) -> None:
         """
@@ -192,6 +228,35 @@ class HoudiniSwapClient:
             raise ValidationError(f"{field_name} must be a number, got {type(amount).__name__}")
         if amount <= 0:
             raise ValidationError(f"{field_name} must be greater than 0, got {amount}")
+    
+    def _normalize_amount(self, amount: Union[str, Decimal, float]) -> str:
+        """Normalize amount to string for API requests."""
+        if isinstance(amount, Decimal):
+            return str(amount)
+        if isinstance(amount, (int, float)):
+            # Convert to Decimal first to avoid precision issues, then to string
+            return str(Decimal(str(amount)))
+        if isinstance(amount, str):
+            # Validate it's a valid number
+            try:
+                Decimal(amount)
+                return amount
+            except (ValueError, TypeError):
+                raise ValidationError(f"amount must be a valid number, got {amount!r}")
+        raise ValidationError(f"amount must be str, Decimal, or number, got {type(amount).__name__}")
+    
+    def _normalize_amount_to_decimal(self, amount: Union[str, Decimal, float]) -> Decimal:
+        """Normalize amount to Decimal for internal use."""
+        if isinstance(amount, Decimal):
+            return amount
+        if isinstance(amount, (int, float)):
+            return Decimal(str(amount))
+        if isinstance(amount, str):
+            try:
+                return Decimal(amount)
+            except (ValueError, TypeError):
+                raise ValidationError(f"amount must be a valid number, got {amount!r}")
+        raise ValidationError(f"amount must be str, Decimal, or number, got {type(amount).__name__}")
     
     def _validate_token_id(self, token_id: str, field_name: str = "token_id") -> None:
         """Validate that token ID is non-empty."""
@@ -318,6 +383,7 @@ class HoudiniSwapClient:
                 params=safe_params,
                 json=safe_json_data,
                 timeout=self.timeout,
+                verify=self.verify_ssl,  # Explicit SSL verification
             )
             
             # Handle authentication errors
@@ -506,17 +572,17 @@ class HoudiniSwapClient:
             "amount": amount,
             "from": from_token,
             "to": to_token,
-            "anonymous": str(anonymous).lower(),
+            "anonymous": anonymous,  # Send boolean directly, not string
         }
         if use_xmr is not None:
-            params["useXmr"] = str(use_xmr).lower()
+            params["useXmr"] = use_xmr  # Send boolean directly, not string
         
         response = self._request("GET", ENDPOINT_QUOTE, params=params)
         return Quote.from_dict(response)
     
     def get_dex_quote(
         self,
-        amount: str,
+        amount: Union[str, Decimal, float],
         token_id_from: str,
         token_id_to: str,
     ) -> List[DEXQuote]:
@@ -550,18 +616,14 @@ class HoudiniSwapClient:
         Side Effects:
             Makes a network request. No local state is modified.
         """
-        # Validate inputs
-        try:
-            amount_float = float(amount)
-            self._validate_amount(amount_float, "amount")
-        except (ValueError, TypeError):
-            raise ValidationError(f"amount must be a valid number, got {type(amount).__name__}")
+        # Validate and convert amount
+        amount_str = self._normalize_amount(amount)
         self._validate_token_id(token_id_from, "token_id_from")
         self._validate_token_id(token_id_to, "token_id_to")
         
         # Create fresh params dict for each call (no mutable defaults)
         params = {
-            "amount": amount,
+            "amount": amount_str,
             "tokenIdFrom": token_id_from,
             "tokenIdTo": token_id_to,
         }
@@ -587,7 +649,7 @@ class HoudiniSwapClient:
     
     def post_cex_exchange(
         self,
-        amount: float,
+        amount: Union[str, Decimal, float],
         from_token: str,
         to_token: str,
         address_to: str,
@@ -739,7 +801,7 @@ class HoudiniSwapClient:
         token_id_from: str,
         token_id_to: str,
         address_from: str,
-        amount: float,
+        amount: Union[str, Decimal, float],
         swap: str,
         route: RouteDTO,
     ) -> List[DexApproveResponse]:
@@ -777,8 +839,9 @@ class HoudiniSwapClient:
             Prepares approval transaction data. User must sign and broadcast the transaction
             on the blockchain. This does not automatically approve tokens.
         """
-        # Validate inputs
-        self._validate_amount(amount, "amount")
+        # Validate and convert amount
+        amount_decimal = self._normalize_amount_to_decimal(amount)
+        self._validate_amount(float(amount_decimal), "amount")
         self._validate_token_id(token_id_from, "token_id_from")
         self._validate_token_id(token_id_to, "token_id_to")
         self._sanitize_input(address_from, "address_from")
@@ -788,7 +851,7 @@ class HoudiniSwapClient:
             "tokenIdFrom": token_id_from,
             "tokenIdTo": token_id_to,
             "addressFrom": address_from,
-            "amount": amount,
+            "amount": float(amount_decimal),  # API expects number
             "swap": swap,
             "route": route.to_dict() if isinstance(route, RouteDTO) else route,
         }
@@ -893,7 +956,7 @@ class HoudiniSwapClient:
             "anonymous": self._bool_to_str(anonymous),
         }
         if cex_only is not None:
-            params["cexOnly"] = self._bool_to_str(cex_only)
+            params["cexOnly"] = cex_only  # Send boolean directly, not string
         
         response = self._request("GET", ENDPOINT_MIN_MAX, params=params)
         return MinMax.from_list(response)
