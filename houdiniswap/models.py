@@ -113,9 +113,13 @@ class Token:
         if missing_fields:
             raise ValidationError(f"Missing required fields for Token: {', '.join(missing_fields)}")
         
-        # Create cache key from token ID (most unique identifier)
-        token_id = data.get("id", "")
-        cache_key = f"token_{token_id}"
+        # Create cache key from full data (for accurate caching)
+        # Normalize network data for consistent hashing
+        cache_data = dict(data)
+        if "network" in cache_data and isinstance(cache_data["network"], dict):
+            # Sort network dict for consistent hashing
+            cache_data["network"] = dict(sorted(cache_data["network"].items()))
+        cache_key = hashlib.md5(json.dumps(cache_data, sort_keys=True).encode()).hexdigest()
         
         # Check cache first
         if cache_key in _token_cache:
@@ -125,7 +129,7 @@ class Token:
         if network_data:
             network = Network.from_dict(network_data)  # This will also use cache
         else:
-            # Create a minimal network if not provided
+            # Create a minimal network if not provided (don't cache this as it's a fallback)
             network = Network(
                 name="",
                 short_name="",
@@ -135,7 +139,7 @@ class Token:
         
         # Create new instance
         token = cls(
-            id=token_id,
+            id=data.get("id", ""),
             name=data.get("name", ""),
             symbol=data.get("symbol", ""),
             network=network,
