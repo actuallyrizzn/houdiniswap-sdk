@@ -4,6 +4,8 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from enum import IntEnum
 
+from .exceptions import ValidationError
+
 
 class TransactionStatus(IntEnum):
     """Transaction status codes."""
@@ -36,6 +38,15 @@ class Network:
     @classmethod
     def from_dict(cls, data: dict) -> "Network":
         """Create Network from API response."""
+        if not isinstance(data, dict):
+            raise ValidationError(f"Expected dict for Network, got {type(data).__name__}")
+        
+        # Validate required fields
+        required_fields = ["name", "shortName", "addressValidation"]
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            raise ValidationError(f"Missing required fields for Network: {', '.join(missing_fields)}")
+        
         return cls(
             name=data.get("name", ""),
             short_name=data.get("shortName", ""),
@@ -74,6 +85,15 @@ class Token:
     @classmethod
     def from_dict(cls, data: dict) -> "Token":
         """Create Token from API response."""
+        if not isinstance(data, dict):
+            raise ValidationError(f"Expected dict for Token, got {type(data).__name__}")
+        
+        # Validate required fields
+        required_fields = ["id", "name", "symbol", "network"]
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            raise ValidationError(f"Missing required fields for Token: {', '.join(missing_fields)}")
+        
         network_data = data.get("network", {})
         if network_data:
             network = Network.from_dict(network_data)
@@ -234,6 +254,15 @@ class ExchangeResponse:
     @classmethod
     def from_dict(cls, data: dict) -> "ExchangeResponse":
         """Create ExchangeResponse from API response."""
+        if not isinstance(data, dict):
+            raise ValidationError(f"Expected dict for ExchangeResponse, got {type(data).__name__}")
+        
+        # Validate required fields
+        required_fields = ["houdiniId", "status"]
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            raise ValidationError(f"Missing required fields for ExchangeResponse: {', '.join(missing_fields)}")
+        
         return cls(
             houdini_id=data.get("houdiniId", ""),
             created=data.get("created", ""),
@@ -274,6 +303,15 @@ class DexApproveResponse:
     @classmethod
     def from_dict(cls, data: dict) -> "DexApproveResponse":
         """Create DexApproveResponse from API response."""
+        if not isinstance(data, dict):
+            raise ValidationError(f"Expected dict for DexApproveResponse, got {type(data).__name__}")
+        
+        # Validate required fields
+        required_fields = ["data", "to", "from"]
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            raise ValidationError(f"Missing required fields for DexApproveResponse: {', '.join(missing_fields)}")
+        
         return cls(
             data=data.get("data", ""),
             to=data.get("to", ""),
@@ -304,10 +342,24 @@ class Status:
     @classmethod
     def from_dict(cls, data: dict) -> "Status":
         """Create Status from API response."""
+        if not isinstance(data, dict):
+            raise ValidationError(f"Expected dict for Status, got {type(data).__name__}")
+        
+        # Validate required fields
+        required_fields = ["houdiniId", "status"]
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            raise ValidationError(f"Missing required fields for Status: {', '.join(missing_fields)}")
+        
         status_code = data.get("status", 0)
+        try:
+            status_enum = TransactionStatus(status_code)
+        except ValueError:
+            raise ValidationError(f"Invalid transaction status code: {status_code}")
+        
         return cls(
             houdini_id=data.get("houdiniId", ""),
-            status=TransactionStatus(status_code),
+            status=status_enum,
             created=data.get("created"),
             sender_address=data.get("senderAddress"),
             receiver_address=data.get("receiverAddress"),
