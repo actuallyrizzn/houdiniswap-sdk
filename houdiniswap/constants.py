@@ -32,3 +32,7 @@ ERROR_AUTHENTICATION_FAILED = "Invalid API key or secret"
 ERROR_NETWORK = "Network error: {}"
 ERROR_UNEXPECTED = "Unexpected error: {}"
 
+# API Versioning
+API_VERSION_DEFAULT = "v1"
+HEADER_API_VERSION = "X-API-Version"
+
