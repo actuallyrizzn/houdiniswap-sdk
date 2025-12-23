@@ -1,34 +1,24 @@
 """Main client for Houdini Swap API."""
 
-<<<<<<< HEAD
 import logging
 import os
 import time
-from typing import Optional, List, Dict, Any, TypeGuard
-=======
-import time
 import requests
 from typing import Optional, List, Dict, Any, TypeGuard, Callable, Union
->>>>>>> origin/main
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal
-
-import requests
 
 from .constants import (
     BASE_URL_PRODUCTION,
     DEFAULT_TIMEOUT,
     DEFAULT_PAGE_SIZE,
-<<<<<<< HEAD
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_BACKOFF_FACTOR,
     DEFAULT_CACHE_TTL,
     ENV_VAR_API_URL,
-=======
     API_VERSION_DEFAULT,
     HEADER_API_VERSION,
->>>>>>> origin/main
     HTTP_STATUS_BAD_REQUEST,
     HTTP_STATUS_UNAUTHORIZED,
     HTTP_STATUS_TOO_MANY_REQUESTS,
@@ -128,16 +118,13 @@ class HoudiniSwapClient:
         api_secret: str,
         base_url: Optional[str] = None,
         timeout: Optional[int] = None,
-<<<<<<< HEAD
-        max_retries: int = DEFAULT_MAX_RETRIES,
-        retry_backoff_factor: float = DEFAULT_RETRY_BACKOFF_FACTOR,
-        cache_enabled: bool = True,
-        cache_ttl: int = DEFAULT_CACHE_TTL,
-        log_level: Optional[int] = None,
-=======
         api_version: Optional[str] = None,
         verify_ssl: bool = True,
->>>>>>> origin/main
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_backoff_factor: float = DEFAULT_RETRY_BACKOFF_FACTOR,
+        cache_enabled: bool = False,
+        cache_ttl: int = DEFAULT_CACHE_TTL,
+        log_level: Optional[int] = None,
     ):
         """
         Initialize the Houdini Swap client.
@@ -148,16 +135,13 @@ class HoudiniSwapClient:
             base_url: Optional custom base URL. If not provided, checks HOUDINI_SWAP_API_URL
                      environment variable, then defaults to production URL.
             timeout: Request timeout in seconds (default: 30, see DEFAULT_TIMEOUT constant)
-<<<<<<< HEAD
-            max_retries: Maximum number of retry attempts for failed requests (default: 3)
-            retry_backoff_factor: Multiplier for exponential backoff (default: 1.0)
-            cache_enabled: Enable caching for token lists (default: True)
-            cache_ttl: Cache time-to-live in seconds (default: 300 = 5 minutes)
-            log_level: Logging level (logging.DEBUG, INFO, WARNING, ERROR). Default: WARNING.
-=======
             api_version: API version to use (default: "v1"). Sent as X-API-Version header.
             verify_ssl: Whether to verify SSL certificates (default: True). Set to False only for testing.
->>>>>>> origin/main
+            max_retries: Maximum number of retry attempts for failed requests (default: 3)
+            retry_backoff_factor: Multiplier for exponential backoff (default: 1.0)
+            cache_enabled: Enable caching for token lists (default: False)
+            cache_ttl: Cache time-to-live in seconds (default: 300 = 5 minutes)
+            log_level: Logging level (logging.DEBUG, INFO, WARNING, ERROR). Default: WARNING.
         
         Raises:
             ValidationError: If api_key or api_secret is empty or None
@@ -168,12 +152,8 @@ class HoudiniSwapClient:
             - Base URL can be set via environment variable HOUDINI_SWAP_API_URL
         
         Side Effects:
-<<<<<<< HEAD
-            Creates a requests.Session() object and stores credentials as instance attributes.
+            Creates a requests.Session() object and stores credentials securely in private attributes.
             Sets up logging if log_level is provided.
-=======
-            Creates a requests.Session() object and stores credentials securely in private attributes
->>>>>>> origin/main
         """
         if not api_key or not api_secret:
             raise ValidationError(ERROR_INVALID_CREDENTIALS)
@@ -181,24 +161,26 @@ class HoudiniSwapClient:
         # Validate credentials format
         self._validate_credentials(api_key, api_secret)
         
-<<<<<<< HEAD
-        self.api_key = api_key
-        self.api_secret = api_secret
+        # Store credentials in private attributes to prevent direct access
+        object.__setattr__(self, '_api_key', api_key)
+        object.__setattr__(self, '_api_secret', api_secret)
         
         # Base URL resolution: parameter > environment variable > default
         if base_url:
             self.base_url = base_url
         else:
-            self.base_url = os.getenv(ENV_VAR_API_URL, self.BASE_URL)
+            self.base_url = os.getenv(ENV_VAR_API_URL, BASE_URL_PRODUCTION)
         
         self.timeout = timeout or DEFAULT_TIMEOUT
+        self.api_version = api_version or API_VERSION_DEFAULT
+        self.verify_ssl = verify_ssl
         self.max_retries = max_retries
         self.retry_backoff_factor = retry_backoff_factor
         
         # Caching configuration
         self.cache_enabled = cache_enabled
         self.cache_ttl = cache_ttl
-        self._token_cache: Dict[str, tuple] = {}  # key -> (data, timestamp)
+        object.__setattr__(self, '_token_cache', {})  # key -> (data, timestamp)
         
         # Setup logging
         self.logger = logging.getLogger("houdiniswap")
@@ -211,15 +193,6 @@ class HoudiniSwapClient:
                     '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
                 ))
                 self.logger.addHandler(handler)
-=======
-        # Store credentials in private attributes to prevent direct access
-        object.__setattr__(self, '_api_key', api_key)
-        object.__setattr__(self, '_api_secret', api_secret)
-        self.base_url = base_url or self.BASE_URL
-        self.timeout = timeout or DEFAULT_TIMEOUT
-        self.api_version = api_version or API_VERSION_DEFAULT
-        self.verify_ssl = verify_ssl
->>>>>>> origin/main
         
         # Create session with authentication and explicit SSL verification
         object.__setattr__(self, 'session', requests.Session())
@@ -270,14 +243,13 @@ class HoudiniSwapClient:
         if not api_key.strip() or not api_secret.strip():
             raise ValidationError(ERROR_INVALID_CREDENTIALS)
     
-<<<<<<< HEAD
     def _redact_credentials(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Redact credentials from data for logging."""
         redacted = dict(data)
         if "Authorization" in redacted:
             redacted["Authorization"] = "***REDACTED***"
         return redacted
-=======
+    
     def _sanitize_input(self, value: str, field_name: str = "input") -> str:
         """
         Sanitize user input to prevent injection attacks.
@@ -426,7 +398,6 @@ class HoudiniSwapClient:
         # Placeholder for future request signing
         # If API adds signing requirements, implement here
         return {}
->>>>>>> origin/main
     
     def _request(
         self,
@@ -462,7 +433,6 @@ class HoudiniSwapClient:
         safe_params = dict(params) if params else None
         safe_json_data = dict(json_data) if json_data else None
         
-<<<<<<< HEAD
         # Status codes that should trigger retries
         retryable_statuses = [
             HTTP_STATUS_TOO_MANY_REQUESTS,
@@ -475,39 +445,6 @@ class HoudiniSwapClient:
         last_exception = None
         
         for attempt in range(self.max_retries + 1):
-=======
-        try:
-            response = self.session.request(
-                method=method,
-                url=url,
-                params=safe_params,
-                json=safe_json_data,
-                timeout=self.timeout,
-                verify=self.verify_ssl,  # Explicit SSL verification
-            )
-            
-            # Handle authentication errors
-            if response.status_code == HTTP_STATUS_UNAUTHORIZED:
-                raise AuthenticationError(ERROR_AUTHENTICATION_FAILED)
-            
-            # Handle other HTTP errors
-            if response.status_code >= HTTP_STATUS_BAD_REQUEST:
-                error_data = None
-                try:
-                    error_data = response.json()
-                    error_message = error_data.get("message", f"API error: {response.status_code}")
-                except ValueError:
-                    # JSON parsing failed - include raw response text (limit length)
-                    error_message = f"API error: {response.status_code} - {response.text[:500]}"
-                
-                raise APIError(
-                    error_message,
-                    status_code=response.status_code,
-                    response=error_data,
-                )
-            
-            # Parse JSON response
->>>>>>> origin/main
             try:
                 # Log request (redact credentials)
                 if self.logger.isEnabledFor(logging.DEBUG):
@@ -674,7 +611,15 @@ class HoudiniSwapClient:
         
         # Fetch from API
         response = self._request("GET", ENDPOINT_TOKENS)
-<<<<<<< HEAD
+        
+        # Validate response is a list before list comprehension
+        if not isinstance(response, list):
+            raise APIError(
+                f"Unexpected response type from tokens endpoint: expected list, got {type(response).__name__}",
+                status_code=None,
+                response=response,
+            )
+        
         tokens = [Token.from_dict(token_data) for token_data in response]
         
         # Update cache
@@ -684,16 +629,6 @@ class HoudiniSwapClient:
                 self.logger.debug("Cached CEX tokens")
         
         return tokens
-=======
-        # Validate response is a list before list comprehension
-        if not isinstance(response, list):
-            raise APIError(
-                f"Unexpected response type from tokens endpoint: expected list, got {type(response).__name__}",
-                status_code=None,
-                response=response,
-            )
-        return [Token.from_dict(token_data) for token_data in response]
->>>>>>> origin/main
     
     def get_dex_tokens(
         self,
