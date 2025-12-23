@@ -37,7 +37,7 @@ class Network:
     icon: Optional[str] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Network":
+    def from_dict(cls, data: Dict[str, Any]) -> "Network":
         """Create Network from API response."""
         if not isinstance(data, dict):
             raise ValidationError(f"Expected dict for Network, got {type(data).__name__}")
@@ -84,7 +84,7 @@ class Token:
     has_fixed_reverse: Optional[bool] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Token":
+    def from_dict(cls, data: Dict[str, Any]) -> "Token":
         """Create Token from API response."""
         if not isinstance(data, dict):
             raise ValidationError(f"Expected dict for Token, got {type(data).__name__}")
@@ -143,7 +143,7 @@ class DEXToken:
     has_dex: Optional[bool] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DEXToken":
+    def from_dict(cls, data: Dict[str, Any]) -> "DEXToken":
         """Create DEXToken from API response."""
         return cls(
             id=data.get("id", ""),
@@ -198,7 +198,7 @@ class Quote:
     client_id: Optional[str] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Quote":
+    def from_dict(cls, data: Dict[str, Any]) -> "Quote":
         """Create Quote from API response."""
         if not isinstance(data, dict):
             raise ValidationError(f"Expected dict for Quote, got {type(data).__name__}")
@@ -239,7 +239,7 @@ class DEXQuote:
     raw: Optional[Dict[str, Any]] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DEXQuote":
+    def from_dict(cls, data: Dict[str, Any]) -> "DEXQuote":
         """Create DEXQuote from API response."""
         def to_decimal(value):
             """Convert value to Decimal, handling None."""
@@ -290,7 +290,7 @@ class ExchangeResponse:
     is_dex: Optional[bool] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ExchangeResponse":
+    def from_dict(cls, data: Dict[str, Any]) -> "ExchangeResponse":
         """Create ExchangeResponse from API response."""
         if not isinstance(data, dict):
             raise ValidationError(f"Expected dict for ExchangeResponse, got {type(data).__name__}")
@@ -355,7 +355,7 @@ class DexApproveResponse:
     from_chain: Optional[Dict[str, Any]] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DexApproveResponse":
+    def from_dict(cls, data: Dict[str, Any]) -> "DexApproveResponse":
         """Create DexApproveResponse from API response."""
         if not isinstance(data, dict):
             raise ValidationError(f"Expected dict for DexApproveResponse, got {type(data).__name__}")
@@ -394,7 +394,7 @@ class Status:
     eta: Optional[int] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Status":
+    def from_dict(cls, data: Dict[str, Any]) -> "Status":
         """Create Status from API response."""
         if not isinstance(data, dict):
             raise ValidationError(f"Expected dict for Status, got {type(data).__name__}")
@@ -437,7 +437,7 @@ class MinMax:
     max: Decimal
 
     @classmethod
-    def from_list(cls, data: List[Union[float, str, Decimal]]) -> "MinMax":
+    def from_list(cls, data: List[Union[float, str, Decimal, int]]) -> "MinMax":
         """Create MinMax from API response array."""
         if len(data) < 2:
             raise ValueError("MinMax requires at least 2 elements")
@@ -457,7 +457,7 @@ class Volume:
     total_transacted_usd: Decimal
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Volume":
+    def from_dict(cls, data: Dict[str, Any]) -> "Volume":
         """Create Volume from API response."""
         return cls(
             count=data.get("count", 0),
@@ -489,7 +489,7 @@ class WeeklyVolume:
     commission: Decimal
 
     @classmethod
-    def from_dict(cls, data: dict) -> "WeeklyVolume":
+    def from_dict(cls, data: Dict[str, Any]) -> "WeeklyVolume":
         """Create WeeklyVolume from API response."""
         return cls(
             count=data.get("count", 0),
