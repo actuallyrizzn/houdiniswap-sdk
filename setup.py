@@ -18,7 +18,7 @@ setup(
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
-        "License :: OSI Approved :: MIT License",
+        "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.8",
@@ -40,7 +40,7 @@ setup(
             "mypy>=1.0.0",
         ],
     },
-    license="MIT",
+    license="AGPL-3.0-or-later",
     keywords=["houdiniswap", "crypto", "exchange", "swap", "api", "sdk"],
     project_urls={
         "Bug Tracker": "https://github.com/houdiniswap/houdiniswap-sdk-python/issues",
