@@ -29,6 +29,7 @@ from .exceptions import (
     NetworkError,
 )
 from .utils import deprecated, deprecated_parameter
+from .config import Config
 
 __version__ = "0.1.0"
 
@@ -105,5 +106,6 @@ __all__ = [
     "NetworkError",
     "deprecated",
     "deprecated_parameter",
+    "Config",
 ]
 
