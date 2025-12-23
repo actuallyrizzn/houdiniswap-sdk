@@ -76,6 +76,9 @@ class HoudiniSwapClient:
         """
         Make an HTTP request to the API.
         
+        Note: params and json_data are defensively copied to prevent mutation
+        of caller's dictionaries. This ensures safe concurrent usage.
+        
         Args:
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint path
@@ -92,12 +95,17 @@ class HoudiniSwapClient:
         """
         url = urljoin(self.base_url, endpoint.lstrip("/"))
         
+        # Defensive copy of params to prevent mutation of caller's dict
+        # This ensures safe concurrent usage and prevents accidental side effects
+        safe_params = dict(params) if params else None
+        safe_json_data = dict(json_data) if json_data else None
+        
         try:
             response = self.session.request(
                 method=method,
                 url=url,
-                params=params,
-                json=json_data,
+                params=safe_params,
+                json=safe_json_data,
                 timeout=self.timeout,
             )
             
@@ -162,6 +170,8 @@ class HoudiniSwapClient:
         Returns:
             Dictionary with 'count' and 'tokens' keys
         """
+        # Create fresh params dict for each call (no mutable defaults)
+        # This pattern ensures thread-safety and prevents accidental mutations
         params = {
             "page": page,
             "pageSize": page_size,
@@ -198,6 +208,7 @@ class HoudiniSwapClient:
         Returns:
             Quote object
         """
+        # Create fresh params dict for each call (no mutable defaults)
         params = {
             "amount": amount,
             "from": from_token,
@@ -227,6 +238,7 @@ class HoudiniSwapClient:
         Returns:
             List of DEXQuote objects
         """
+        # Create fresh params dict for each call (no mutable defaults)
         params = {
             "amount": amount,
             "tokenIdFrom": token_id_from,
@@ -411,6 +423,7 @@ class HoudiniSwapClient:
         Returns:
             Status object
         """
+        # Create fresh params dict for each call (no mutable defaults)
         params = {"id": houdini_id}
         response = self._request("GET", "/status", params=params)
         # Add houdini_id to response if not present
@@ -437,6 +450,7 @@ class HoudiniSwapClient:
         Returns:
             MinMax object with min and max amounts
         """
+        # Create fresh params dict for each call (no mutable defaults)
         params = {
             "from": from_token,
             "to": to_token,
