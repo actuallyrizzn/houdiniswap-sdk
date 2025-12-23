@@ -88,8 +88,12 @@ class TestClientValidation:
     
     def test_validate_amount_non_number_raises(self, client):
         """Test that non-number raises ValidationError."""
-        with pytest.raises(ValidationError, match="must be a number"):
-            client._validate_amount("1.0", "amount")
+        # Valid numeric strings should pass
+        client._validate_amount("1.0", "amount")  # Should not raise
+        # Invalid strings should raise
+        with pytest.raises(ValidationError, match="must be a valid number"):
+            client._validate_amount("not_a_number", "amount")
+        # None should raise
         with pytest.raises(ValidationError, match="must be a number"):
             client._validate_amount(None, "amount")
     

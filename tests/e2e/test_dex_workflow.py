@@ -37,7 +37,7 @@ class TestDexExchangeWorkflow:
         status_waiting = {**sample_status_data, "status": TransactionStatus.WAITING.value}
         status_finished = {**sample_status_data, "status": TransactionStatus.FINISHED.value}
         
-        with patch.object(client, '_request', side_effect=[
+        with patch('houdiniswap.client.HoudiniSwapClient._request', side_effect=[
             {"count": 1, "tokens": [sample_dex_token_data]},  # get_dex_tokens
             [quote_data],  # get_dex_quote
             [approve_data],  # post_dex_approve
@@ -97,7 +97,7 @@ class TestDexExchangeWorkflow:
         """Test DEX exchange when approval is not needed."""
         route = RouteDTO.from_dict(sample_route_data)
         
-        with patch.object(client, '_request', side_effect=[
+        with patch('houdiniswap.client.HoudiniSwapClient._request', side_effect=[
             [sample_dex_quote_data],  # get_dex_quote
             [],  # post_dex_approve (empty = no approval needed)
             sample_exchange_response_data,  # post_dex_exchange
@@ -135,7 +135,7 @@ class TestDexExchangeWorkflow:
         """Test DEX exchange with transaction confirmation."""
         route = RouteDTO.from_dict(sample_route_data)
         
-        with patch.object(client, '_request', side_effect=[
+        with patch('houdiniswap.client.HoudiniSwapClient._request', side_effect=[
             [sample_dex_quote_data],  # get_dex_quote
             sample_exchange_response_data,  # post_dex_exchange
             True,  # post_dex_confirm_tx
@@ -168,7 +168,7 @@ class TestDexExchangeWorkflow:
         quote1 = sample_dex_quote_data.copy()
         quote2 = {**sample_dex_quote_data, "quoteId": "quote2", "amountOut": "0.06"}
         
-        with patch.object(client, '_request', return_value=[quote1, quote2]):
+        with patch('houdiniswap.client.HoudiniSwapClient._request', return_value=[quote1, quote2]):
             quotes = client.get_dex_quote("1.0", "token1", "token2")
             assert len(quotes) == 2
             # User can choose best quote

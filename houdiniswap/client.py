@@ -7,7 +7,7 @@ import requests
 from typing import Optional, List, Dict, Any, TypeGuard, Callable, Union
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from .constants import (
     BASE_URL_PRODUCTION,
@@ -110,6 +110,7 @@ class HoudiniSwapClient:
         'cache_enabled',
         'cache_ttl',
         '_token_cache',
+        '_closed',
     )
     
     BASE_URL = "https://api-partner.houdiniswap.com"
@@ -197,7 +198,10 @@ class HoudiniSwapClient:
                 self.logger.addHandler(handler)
         
         # Create session with authentication and explicit SSL verification
-        object.__setattr__(self, 'session', requests.Session())
+        session = requests.Session()
+        # Add closed property to session for testing
+        session.closed = False
+        object.__setattr__(self, 'session', session)
         # Use private attributes for credentials in header
         self.session.headers.update({
             "Authorization": f"{self._api_key}:{self._api_secret}",
@@ -281,12 +285,23 @@ class HoudiniSwapClient:
         
         return sanitized
     
-    def _validate_amount(self, amount: float, field_name: str = "amount") -> None:
+    def _validate_amount(self, amount: Union[float, Decimal, int, str], field_name: str = "amount") -> None:
         """Validate that amount is positive."""
-        if not isinstance(amount, (int, float)):
+        # First check if it's a valid type
+        if not isinstance(amount, (int, float, Decimal, str)):
             raise ValidationError(f"{field_name} must be a number, got {type(amount).__name__}")
-        if amount <= 0:
-            raise ValidationError(f"{field_name} must be greater than 0, got {amount}")
+        # For strings, validate they can be converted to a number and are positive
+        if isinstance(amount, str):
+            try:
+                amount_decimal = Decimal(amount)
+                if amount_decimal <= 0:
+                    raise ValidationError(f"{field_name} must be greater than 0, got {amount}")
+            except (ValueError, InvalidOperation, TypeError):
+                raise ValidationError(f"{field_name} must be a valid number, got {amount!r}")
+        # For numeric types, check if positive
+        elif isinstance(amount, (int, float, Decimal)):
+            if amount <= 0:
+                raise ValidationError(f"{field_name} must be greater than 0, got {amount}")
     
     def _normalize_amount(self, amount: Union[str, Decimal, float]) -> str:
         """Normalize amount to string for API requests."""
@@ -300,7 +315,7 @@ class HoudiniSwapClient:
             try:
                 Decimal(amount)
                 return amount
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, InvalidOperation):
                 raise ValidationError(f"amount must be a valid number, got {amount!r}")
         raise ValidationError(f"amount must be str, Decimal, or number, got {type(amount).__name__}")
     
@@ -313,7 +328,7 @@ class HoudiniSwapClient:
         if isinstance(amount, str):
             try:
                 return Decimal(amount)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, InvalidOperation):
                 raise ValidationError(f"amount must be a valid number, got {amount!r}")
         raise ValidationError(f"amount must be str, Decimal, or number, got {type(amount).__name__}")
     
@@ -561,7 +576,14 @@ class HoudiniSwapClient:
     def close(self) -> None:
         """Close the HTTP session and release resources."""
         if hasattr(self, 'session') and self.session:
-            self.session.close()
+            try:
+                closed = object.__getattribute__(self, '_closed')
+            except AttributeError:
+                closed = False
+            if not closed:
+                self.session.close()
+                self.session.closed = True
+                object.__setattr__(self, '_closed', True)
     
     # ==================== Token Information APIs ====================
     
@@ -672,6 +694,10 @@ class HoudiniSwapClient:
         Side Effects:
             Makes a network request. No local state is modified.
         """
+        # Validate parameters
+        self._validate_page(page)
+        self._validate_page_size(page_size)
+        
         # Create cache key from parameters
         cache_key = f"dex_tokens_{page}_{page_size}_{chain or 'all'}"
         current_time = time.time()

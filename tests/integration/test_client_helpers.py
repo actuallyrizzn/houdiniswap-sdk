@@ -18,7 +18,7 @@ class TestIterDexTokens:
             count=1,
             tokens=[DEXToken.from_dict(sample_dex_tokens_response_data['tokens'][0])]
         )
-        with patch.object(client, 'get_dex_tokens', return_value=response):
+        with patch('houdiniswap.client.HoudiniSwapClient.get_dex_tokens', return_value=response):
             tokens = list(client.iter_dex_tokens())
             assert len(tokens) == 1
             assert tokens[0].symbol == "USDC"
@@ -40,7 +40,7 @@ class TestIterDexTokens:
             tokens=[DEXToken.from_dict(sample_dex_token_data) for _ in range(50)]
         )
         
-        with patch.object(client, 'get_dex_tokens', side_effect=[page1, page2, page3]):
+        with patch('houdiniswap.client.HoudiniSwapClient.get_dex_tokens', side_effect=[page1, page2, page3]):
             tokens = list(client.iter_dex_tokens(page_size=100))
             assert len(tokens) == 250
     
@@ -52,7 +52,7 @@ class TestIterDexTokens:
             tokens=[DEXToken.from_dict(sample_dex_tokens_response_data['tokens'][0])]
         )
         
-        with patch.object(client, 'get_dex_tokens', return_value=response):
+        with patch('houdiniswap.client.HoudiniSwapClient.get_dex_tokens', return_value=response):
             tokens = list(client.iter_dex_tokens(chain="base"))
             assert len(tokens) == 1
             client.get_dex_tokens.assert_called_with(page=1, page_size=100, chain="base")
@@ -62,7 +62,7 @@ class TestIterDexTokens:
         from houdiniswap.models import DEXTokensResponse
         empty_response = DEXTokensResponse(count=0, tokens=[])
         
-        with patch.object(client, 'get_dex_tokens', return_value=empty_response):
+        with patch('houdiniswap.client.HoudiniSwapClient.get_dex_tokens', return_value=empty_response):
             tokens = list(client.iter_dex_tokens())
             assert len(tokens) == 0
 
@@ -75,7 +75,7 @@ class TestGetAllDexTokens:
         from houdiniswap.models import DEXToken
         token = DEXToken.from_dict(sample_dex_token_data)
         
-        with patch.object(client, 'iter_dex_tokens', return_value=iter([token])):
+        with patch('houdiniswap.client.HoudiniSwapClient.iter_dex_tokens', return_value=iter([token])):
             tokens = client.get_all_dex_tokens()
             assert len(tokens) == 1
             assert tokens[0].symbol == "USDC"
@@ -90,7 +90,7 @@ class TestWaitForStatus:
         status_data = {**sample_status_data, "status": TransactionStatus.FINISHED.value}
         status = Status.from_dict(status_data)
         
-        with patch.object(client, 'get_status', return_value=status):
+        with patch('houdiniswap.client.HoudiniSwapClient.get_status', return_value=status):
             result = client.wait_for_status("test123", TransactionStatus.FINISHED, timeout=10, poll_interval=0.1)
             assert result.status == TransactionStatus.FINISHED
     
@@ -103,7 +103,7 @@ class TestWaitForStatus:
             Status.from_dict({"houdiniId": "test123", "status": TransactionStatus.FINISHED.value}),
         ]
         
-        with patch.object(client, 'get_status', side_effect=statuses), \
+        with patch('houdiniswap.client.HoudiniSwapClient.get_status', side_effect=statuses), \
              patch('time.sleep'):  # Speed up test
             result = client.wait_for_status("test123", TransactionStatus.FINISHED, timeout=10, poll_interval=0.1)
             assert result.status == TransactionStatus.FINISHED
@@ -113,7 +113,7 @@ class TestWaitForStatus:
         from houdiniswap.models import Status
         status = Status.from_dict({"houdiniId": "test123", "status": TransactionStatus.WAITING.value})
         
-        with patch.object(client, 'get_status', return_value=status), \
+        with patch('houdiniswap.client.HoudiniSwapClient.get_status', return_value=status), \
              patch('time.sleep'), \
              patch('time.time', side_effect=[0, 11]):  # Simulate timeout
             with pytest.raises(TimeoutError, match="Timeout waiting for status"):
@@ -131,7 +131,7 @@ class TestPollUntilFinished:
             Status.from_dict({"houdiniId": "test123", "status": TransactionStatus.FINISHED.value}),
         ]
         
-        with patch.object(client, 'get_status', side_effect=statuses), \
+        with patch('houdiniswap.client.HoudiniSwapClient.get_status', side_effect=statuses), \
              patch('time.sleep'):  # Speed up test
             result = client.poll_until_finished("test123", timeout=10, poll_interval=0.1)
             assert result.status == TransactionStatus.FINISHED
@@ -141,7 +141,7 @@ class TestPollUntilFinished:
         from houdiniswap.models import Status
         status = Status.from_dict({"houdiniId": "test123", "status": TransactionStatus.FAILED.value})
         
-        with patch.object(client, 'get_status', return_value=status), \
+        with patch('houdiniswap.client.HoudiniSwapClient.get_status', return_value=status), \
              patch('time.sleep'):
             result = client.poll_until_finished("test123", timeout=10, poll_interval=0.1)
             assert result.status == TransactionStatus.FAILED
@@ -151,7 +151,7 @@ class TestPollUntilFinished:
         from houdiniswap.models import Status
         status = Status.from_dict({"houdiniId": "test123", "status": TransactionStatus.WAITING.value})
         
-        with patch.object(client, 'get_status', return_value=status), \
+        with patch('houdiniswap.client.HoudiniSwapClient.get_status', return_value=status), \
              patch('time.sleep'), \
              patch('time.time', side_effect=[0, 11]):  # Simulate timeout
             with pytest.raises(TimeoutError, match="Timeout waiting for transaction"):
@@ -205,7 +205,7 @@ class TestClearCache:
         client.cache_enabled = True
         mock_response = [sample_token_data]
         
-        with patch.object(client, '_request', return_value=mock_response):
+        with patch('houdiniswap.client.HoudiniSwapClient._request', return_value=mock_response):
             # Populate cache
             client.get_cex_tokens()
             assert len(client._token_cache) > 0

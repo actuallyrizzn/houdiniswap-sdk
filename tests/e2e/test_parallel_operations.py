@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import patch
 
 from houdiniswap import HoudiniSwapClient
+from houdiniswap.exceptions import APIError
 
 
 class TestParallelOperations:
@@ -11,7 +12,7 @@ class TestParallelOperations:
     
     def test_parallel_token_queries(self, client, sample_token_data, sample_dex_tokens_response_data):
         """Test parallel queries for CEX and DEX tokens."""
-        with patch.object(client, '_request', side_effect=[
+        with patch('houdiniswap.client.HoudiniSwapClient._request', side_effect=[
             [sample_token_data],  # get_cex_tokens
             sample_dex_tokens_response_data,  # get_dex_tokens
         ]):
@@ -26,28 +27,28 @@ class TestParallelOperations:
     
     def test_parallel_status_checks(self, client, sample_status_data):
         """Test parallel status checks for multiple transactions."""
-        status1 = {**sample_status_data, "houdiniId": "id1", "status": 0}
-        status2 = {**sample_status_data, "houdiniId": "id2", "status": 4}
-        status3 = {**sample_status_data, "houdiniId": "id3", "status": 1}
+        status1 = {**sample_status_data, "houdiniId": "id1234567890", "status": 0}
+        status2 = {**sample_status_data, "houdiniId": "id2234567890", "status": 4}
+        status3 = {**sample_status_data, "houdiniId": "id3234567890", "status": 1}
         
-        with patch.object(client, '_request', side_effect=[status1, status2, status3]):
+        with patch('houdiniswap.client.HoudiniSwapClient._request', side_effect=[status1, status2, status3]):
             results = client.execute_parallel([
-                lambda: client.get_status("id1"),
-                lambda: client.get_status("id2"),
-                lambda: client.get_status("id3"),
+                lambda: client.get_status("id1234567890"),
+                lambda: client.get_status("id2234567890"),
+                lambda: client.get_status("id3234567890"),
             ])
             
             assert len(results) == 3
-            assert results[0].houdini_id == "id1"
-            assert results[1].houdini_id == "id2"
-            assert results[2].houdini_id == "id3"
+            assert results[0].houdini_id == "id1234567890"
+            assert results[1].houdini_id == "id2234567890"
+            assert results[2].houdini_id == "id3234567890"
     
     def test_parallel_quotes(self, client, sample_quote_data):
         """Test parallel quote requests for different token pairs."""
         quote1 = {**sample_quote_data, "amountOut": "0.05"}
         quote2 = {**sample_quote_data, "amountOut": "0.10"}
         
-        with patch.object(client, '_request', side_effect=[quote1, quote2]):
+        with patch('houdiniswap.client.HoudiniSwapClient._request', side_effect=[quote1, quote2]):
             results = client.execute_parallel([
                 lambda: client.get_cex_quote("1.0", "ETH", "BNB", anonymous=False),
                 lambda: client.get_cex_quote("1.0", "BTC", "ETH", anonymous=False),
@@ -65,9 +66,9 @@ class TestParallelOperations:
         mock_error.status_code = 400
         mock_error.json.return_value = {"message": "Error"}
         
-        with patch.object(client.session, 'request', side_effect=[
+        with patch('houdiniswap.client.HoudiniSwapClient._request', side_effect=[
             [sample_token_data],  # Success
-            mock_error,  # Error
+            APIError("Error", status_code=400),  # Error
         ]):
             results = client.execute_parallel([
                 lambda: client.get_cex_tokens(),
@@ -75,12 +76,12 @@ class TestParallelOperations:
             ])
             
             assert len(results) == 2
-            assert len(results[0]) > 0  # First succeeded
+            assert isinstance(results[0], list) and len(results[0]) > 0  # First succeeded
             assert isinstance(results[1], Exception)  # Second failed
     
     def test_parallel_volume_queries(self, client, sample_volume_data, sample_weekly_volume_data):
         """Test parallel volume and weekly volume queries."""
-        with patch.object(client, '_request', side_effect=[
+        with patch('houdiniswap.client.HoudiniSwapClient._request', side_effect=[
             sample_volume_data,  # get_volume
             [sample_weekly_volume_data],  # get_weekly_volume
         ]):
@@ -114,7 +115,7 @@ class TestIterationAndPagination:
             tokens=[DEXToken.from_dict(sample_dex_token_data) for _ in range(50)]
         )
         
-        with patch.object(client, 'get_dex_tokens', side_effect=[page1, page2, page3]):
+        with patch('houdiniswap.client.HoudiniSwapClient.get_dex_tokens', side_effect=[page1, page2, page3]):
             tokens = list(client.iter_dex_tokens(page_size=100))
             assert len(tokens) == 250
     
@@ -127,7 +128,7 @@ class TestIterationAndPagination:
             tokens=[DEXToken.from_dict(sample_dex_token_data)]
         )
         
-        with patch.object(client, 'iter_dex_tokens', return_value=iter([DEXToken.from_dict(sample_dex_token_data)])):
+        with patch('houdiniswap.client.HoudiniSwapClient.iter_dex_tokens', return_value=iter([DEXToken.from_dict(sample_dex_token_data)])):
             tokens = client.get_all_dex_tokens()
             assert len(tokens) == 1
             assert tokens[0].symbol == "USDC"
