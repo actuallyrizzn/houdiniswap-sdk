@@ -31,6 +31,18 @@ class HoudiniSwapClient:
     Client for interacting with the Houdini Swap API.
     
     All requests require authentication using API key and secret.
+    
+    Thread Safety:
+        This client is not thread-safe. Each thread should use its own instance
+        or external synchronization must be used when sharing an instance.
+    
+    Performance:
+        Uses a persistent HTTP session for connection pooling. Network requests
+        are synchronous and will block until a response is received or timeout occurs.
+    
+    Side Effects:
+        Creates and maintains an HTTP session. Credentials are stored in instance
+        attributes (consider security implications).
     """
     
     BASE_URL = "https://api-partner.houdiniswap.com"
@@ -50,6 +62,16 @@ class HoudiniSwapClient:
             api_secret: Your Houdini Swap API secret
             base_url: Optional custom base URL (defaults to production)
             timeout: Request timeout in seconds (default: 30)
+        
+        Raises:
+            ValidationError: If api_key or api_secret is empty or None
+        
+        Edge Cases:
+            - Empty strings are treated as invalid credentials
+            - None values for api_key or api_secret will raise ValidationError
+        
+        Side Effects:
+            Creates a requests.Session() object and stores credentials as instance attributes
         """
         if not api_key or not api_secret:
             raise ValidationError("API key and secret are required")
@@ -141,6 +163,23 @@ class HoudiniSwapClient:
         
         Returns:
             List of Token objects
+        
+        Raises:
+            APIError: If the API returns an error response (status >= 400)
+            NetworkError: If a network error occurs (connection timeout, DNS failure, etc.)
+            AuthenticationError: If authentication fails (401 status)
+            HoudiniSwapError: For unexpected errors
+        
+        Edge Cases:
+            - Returns empty list if API returns empty array
+            - May raise APIError if API structure changes unexpectedly
+        
+        Performance:
+            Single HTTP GET request. Response time depends on API latency.
+            Typically completes in < 1 second under normal conditions.
+        
+        Side Effects:
+            Makes a network request. No local state is modified.
         """
         response = self._request("GET", "/tokens")
         return [Token.from_dict(token_data) for token_data in response]
@@ -160,7 +199,25 @@ class HoudiniSwapClient:
             chain: Chain short name (e.g., "base") - optional
             
         Returns:
-            Dictionary with 'count' and 'tokens' keys
+            Dictionary with 'count' (int) and 'tokens' (List[DEXToken]) keys
+        
+        Raises:
+            APIError: If the API returns an error response (status >= 400)
+            NetworkError: If a network error occurs (connection timeout, DNS failure, etc.)
+            AuthenticationError: If authentication fails (401 status)
+            HoudiniSwapError: For unexpected errors
+        
+        Edge Cases:
+            - Returns {'count': 0, 'tokens': []} if no tokens found or page out of range
+            - page < 1 may return empty results (API behavior)
+            - page_size > 100 may be limited by API
+        
+        Performance:
+            Single HTTP GET request with pagination. Response time depends on API latency
+            and page size. Typically completes in < 1 second under normal conditions.
+        
+        Side Effects:
+            Makes a network request. No local state is modified.
         """
         params = {
             "page": page,
@@ -196,7 +253,27 @@ class HoudiniSwapClient:
             use_xmr: Use XMR for anonymous transactions (optional)
             
         Returns:
-            Quote object
+            Quote object with exchange rate and estimated output amount
+        
+        Raises:
+            APIError: If the API returns an error response (status >= 400)
+            NetworkError: If a network error occurs (connection timeout, DNS failure, etc.)
+            AuthenticationError: If authentication fails (401 status)
+            HoudiniSwapError: For unexpected errors
+        
+        Edge Cases:
+            - Invalid token IDs will result in APIError
+            - Amounts below minimum or above maximum will result in APIError
+            - Quotes may expire after a certain time period (check quote validity)
+            - Network issues may cause timeouts
+        
+        Performance:
+            Single HTTP GET request. Response time depends on API latency.
+            Typically completes in < 1 second under normal conditions.
+        
+        Side Effects:
+            Makes a network request. No local state is modified.
+            Note: Boolean values are converted to lowercase strings for API compatibility.
         """
         params = {
             "amount": amount,
@@ -225,7 +302,26 @@ class HoudiniSwapClient:
             token_id_to: ID of the token to which the swap is directed
             
         Returns:
-            List of DEXQuote objects
+            List of DEXQuote objects (may be empty if no routes available)
+        
+        Raises:
+            APIError: If the API returns an error response (status >= 400)
+            NetworkError: If a network error occurs (connection timeout, DNS failure, etc.)
+            AuthenticationError: If authentication fails (401 status)
+            HoudiniSwapError: For unexpected errors
+        
+        Edge Cases:
+            - Returns empty list if no swap routes are available
+            - Invalid token IDs will result in APIError
+            - Amounts below minimum or above maximum will result in APIError
+            - May return multiple quotes for different swap routes
+        
+        Performance:
+            Single HTTP GET request. Response time depends on API latency and route calculation.
+            Typically completes in < 2 seconds under normal conditions.
+        
+        Side Effects:
+            Makes a network request. No local state is modified.
         """
         params = {
             "amount": amount,
@@ -261,7 +357,7 @@ class HoudiniSwapClient:
             to_token: Symbol of the output token (e.g., "BNB")
             address_to: Destination address
             anonymous: Whether the transaction is anonymous (default: False)
-            receiver_tag: Optional receiver tag
+            receiver_tag: Optional receiver tag (required for some networks like XRP)
             wallet_id: User's wallet identifier (optional)
             ip: User IP address for fraud prevention (optional)
             user_agent: User browser user agent string (optional)
@@ -269,7 +365,28 @@ class HoudiniSwapClient:
             use_xmr: Use XMR for anonymous transactions (optional)
             
         Returns:
-            ExchangeResponse object
+            ExchangeResponse object containing transaction details and houdini_id
+        
+        Raises:
+            APIError: If the API returns an error response (status >= 400)
+            NetworkError: If a network error occurs (connection timeout, DNS failure, etc.)
+            AuthenticationError: If authentication fails (401 status)
+            HoudiniSwapError: For unexpected errors
+        
+        Edge Cases:
+            - Invalid addresses will result in APIError
+            - Amounts below minimum or above maximum will result in APIError
+            - Invalid token pairs will result in APIError
+            - Network congestion may cause timeouts
+            - Transaction may fail after submission (check status separately)
+        
+        Performance:
+            Single HTTP POST request. Response time depends on API latency.
+            Typically completes in < 2 seconds under normal conditions.
+        
+        Side Effects:
+            Creates a transaction on the Houdini Swap platform. This is a state-changing operation.
+            The transaction will be processed asynchronously. Use get_status() to check progress.
         """
         json_data = {
             "amount": amount,
@@ -316,11 +433,33 @@ class HoudiniSwapClient:
             address_from: Sender's address
             address_to: Destination address
             swap: Swap method (e.g., "sw")
-            quote_id: Quote identifier from get_dex_quote
-            route: Routing and fee details (RouteDTO object)
+            quote_id: Quote identifier from get_dex_quote (must be valid and not expired)
+            route: Routing and fee details (RouteDTO object from quote)
             
         Returns:
-            ExchangeResponse object
+            ExchangeResponse object containing transaction details and houdini_id
+        
+        Raises:
+            APIError: If the API returns an error response (status >= 400)
+            NetworkError: If a network error occurs (connection timeout, DNS failure, etc.)
+            AuthenticationError: If authentication fails (401 status)
+            HoudiniSwapError: For unexpected errors
+        
+        Edge Cases:
+            - Expired quote_id will result in APIError
+            - Invalid addresses will result in APIError
+            - Mismatched route/quote_id will result in APIError
+            - Network congestion may cause timeouts
+            - Transaction may fail after submission (check status separately)
+        
+        Performance:
+            Single HTTP POST request. Response time depends on API latency.
+            Typically completes in < 2 seconds under normal conditions.
+        
+        Side Effects:
+            Creates a transaction on the Houdini Swap platform. This is a state-changing operation.
+            The transaction will be processed asynchronously. Use get_status() to check progress.
+            May require token approval first (use post_dex_approve).
         """
         json_data = {
             "amount": amount,
@@ -356,10 +495,30 @@ class HoudiniSwapClient:
             address_from: Address from which the amount will be deducted
             amount: Amount to be approved
             swap: Swap identifier or type (e.g., "ch")
-            route: Routing details (RouteDTO object)
+            route: Routing details (RouteDTO object from quote)
             
         Returns:
-            List of DexApproveResponse objects
+            List of DexApproveResponse objects (typically contains transaction data to sign)
+        
+        Raises:
+            APIError: If the API returns an error response (status >= 400)
+            NetworkError: If a network error occurs (connection timeout, DNS failure, etc.)
+            AuthenticationError: If authentication fails (401 status)
+            HoudiniSwapError: For unexpected errors
+        
+        Edge Cases:
+            - Returns empty list if approval not needed
+            - Invalid addresses will result in APIError
+            - Insufficient balance will result in APIError
+            - May return multiple approval transactions for complex routes
+        
+        Performance:
+            Single HTTP POST request. Response time depends on API latency.
+            Typically completes in < 2 seconds under normal conditions.
+        
+        Side Effects:
+            Prepares approval transaction data. User must sign and broadcast the transaction
+            on the blockchain. This does not automatically approve tokens.
         """
         json_data = {
             "tokenIdFrom": token_id_from,
