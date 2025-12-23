@@ -4,6 +4,8 @@ import logging
 import os
 import time
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import Optional, List, Dict, Any, TypeGuard, Callable, Union
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -197,10 +199,23 @@ class HoudiniSwapClient:
                 ))
                 self.logger.addHandler(handler)
         
-        # Create session with authentication and explicit SSL verification
+        # Create session with connection pooling configuration
         session = requests.Session()
         # Add closed property to session for testing
         session.closed = False
+        
+        # Configure connection pooling with HTTPAdapter
+        # pool_connections: number of connection pools to cache
+        # pool_maxsize: maximum number of connections to save in the pool
+        adapter = HTTPAdapter(
+            pool_connections=10,  # Number of connection pools to cache
+            pool_maxsize=20,      # Maximum number of connections to save in the pool
+            max_retries=0,        # We handle retries in _request method
+            pool_block=False,     # Don't block if pool is full
+        )
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+        
         object.__setattr__(self, 'session', session)
         # Use private attributes for credentials in header
         self.session.headers.update({
