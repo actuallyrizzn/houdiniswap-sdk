@@ -162,6 +162,28 @@ class DEXToken:
 
 
 @dataclass(frozen=True)
+class RouteDTO:
+    """Route DTO for DEX transactions."""
+    # Route structure is complex and may vary, so we store the raw dict
+    # but provide typed access to common fields
+    raw: Dict[str, Any]
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RouteDTO":
+        """Create RouteDTO from API response."""
+        if not isinstance(data, dict):
+            raise ValidationError(f"Expected dict for RouteDTO, got {type(data).__name__}")
+        return cls(raw=data)
+    
+    def __repr__(self) -> str:
+        return f"RouteDTO(bridge={self.raw.get('bridge', 'unknown') if isinstance(self.raw, dict) else 'N/A'})"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert RouteDTO back to dictionary for API requests."""
+        return self.raw
+
+
+@dataclass(frozen=True)
 class Quote:
     """Quote information."""
     amount_in: float
@@ -177,6 +199,8 @@ class Quote:
     @classmethod
     def from_dict(cls, data: dict) -> "Quote":
         """Create Quote from API response."""
+        if not isinstance(data, dict):
+            raise ValidationError(f"Expected dict for Quote, got {type(data).__name__}")
         return cls(
             amount_in=data.get("amountIn", 0.0),
             amount_out=data.get("amountOut", 0.0),
@@ -245,9 +269,9 @@ class ExchangeResponse:
     eta: Optional[int] = None
     in_amount_usd: Optional[float] = None
     in_created: Optional[str] = None
-    quote: Optional[Dict[str, Any]] = None
-    out_token: Optional[Dict[str, Any]] = None
-    in_token: Optional[Dict[str, Any]] = None
+    quote: Optional[Quote] = None
+    out_token: Optional[Token] = None
+    in_token: Optional[Token] = None
     metadata: Optional[Dict[str, Any]] = None
     is_dex: Optional[bool] = None
 
@@ -262,6 +286,16 @@ class ExchangeResponse:
         missing_fields = [field for field in required_fields if field not in data]
         if missing_fields:
             raise ValidationError(f"Missing required fields for ExchangeResponse: {', '.join(missing_fields)}")
+        
+        # Parse nested objects
+        quote_data = data.get("quote")
+        quote = Quote.from_dict(quote_data) if quote_data and isinstance(quote_data, dict) else None
+        
+        out_token_data = data.get("outToken")
+        out_token = Token.from_dict(out_token_data) if out_token_data and isinstance(out_token_data, dict) else None
+        
+        in_token_data = data.get("inToken")
+        in_token = Token.from_dict(in_token_data) if in_token_data and isinstance(in_token_data, dict) else None
         
         return cls(
             houdini_id=data.get("houdiniId", ""),
@@ -281,9 +315,9 @@ class ExchangeResponse:
             eta=data.get("eta"),
             in_amount_usd=data.get("inAmountUsd"),
             in_created=data.get("inCreated"),
-            quote=data.get("quote"),
-            out_token=data.get("outToken"),
-            in_token=data.get("inToken"),
+            quote=quote,
+            out_token=out_token,
+            in_token=in_token,
             metadata=data.get("metadata"),
             is_dex=data.get("isDex"),
         )

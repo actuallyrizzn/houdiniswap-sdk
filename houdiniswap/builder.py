@@ -2,7 +2,7 @@
 
 from typing import Optional, Dict, Any
 from .client import HoudiniSwapClient
-from .models import ExchangeResponse
+from .models import ExchangeResponse, RouteDTO
 from .exceptions import ValidationError
 
 
@@ -28,7 +28,7 @@ class ExchangeBuilder:
         # DEX-specific
         self._swap: Optional[str] = None
         self._quote_id: Optional[str] = None
-        self._route: Optional[Dict[str, Any]] = None
+        self._route: Optional[RouteDTO] = None
     
     def cex(self) -> "ExchangeBuilder":
         """Set exchange type to CEX."""
@@ -112,10 +112,10 @@ class ExchangeBuilder:
         self._quote_id = self.client._sanitize_input(quote_id, "quote_id")
         return self
     
-    def route(self, route: Dict[str, Any]) -> "ExchangeBuilder":
+    def route(self, route: RouteDTO) -> "ExchangeBuilder":
         """Set route (DEX only)."""
-        if not isinstance(route, dict):
-            raise ValidationError("Route must be a dictionary")
+        if not isinstance(route, RouteDTO):
+            raise ValidationError("Route must be a RouteDTO instance")
         self._route = route
         return self
     

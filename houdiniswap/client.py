@@ -50,6 +50,7 @@ from .models import (
     Volume,
     WeeklyVolume,
     TransactionStatus,
+    RouteDTO,
 )
 
 
@@ -155,6 +156,126 @@ class HoudiniSwapClient:
         # Check for empty strings (already checked above, but double-check)
         if not api_key.strip() or not api_secret.strip():
             raise ValidationError(ERROR_INVALID_CREDENTIALS)
+    
+    def _sanitize_input(self, value: str, field_name: str = "input") -> str:
+        """
+        Sanitize user input to prevent injection attacks.
+        
+        Args:
+            value: Input string to sanitize
+            field_name: Name of the field for error messages
+            
+        Returns:
+            Sanitized string (stripped of whitespace)
+            
+        Raises:
+            ValidationError: If input is invalid
+        """
+        if not isinstance(value, str):
+            raise ValidationError(f"{field_name} must be a string, got {type(value).__name__}")
+        
+        sanitized = value.strip()
+        if not sanitized:
+            raise ValidationError(f"{field_name} cannot be empty")
+        
+        # Check for potentially dangerous characters
+        dangerous_chars = ['\n', '\r', '\t', '\x00']
+        for char in dangerous_chars:
+            if char in sanitized:
+                raise ValidationError(f"{field_name} contains invalid characters")
+        
+        return sanitized
+    
+    def _validate_amount(self, amount: float, field_name: str = "amount") -> None:
+        """Validate that amount is positive."""
+        if not isinstance(amount, (int, float)):
+            raise ValidationError(f"{field_name} must be a number, got {type(amount).__name__}")
+        if amount <= 0:
+            raise ValidationError(f"{field_name} must be greater than 0, got {amount}")
+    
+    def _validate_token_id(self, token_id: str, field_name: str = "token_id") -> None:
+        """Validate that token ID is non-empty."""
+        self._sanitize_input(token_id, field_name)
+    
+    def _validate_page(self, page: int, field_name: str = "page") -> None:
+        """Validate that page number is positive."""
+        if not isinstance(page, int):
+            raise ValidationError(f"{field_name} must be an integer, got {type(page).__name__}")
+        if page < 1:
+            raise ValidationError(f"{field_name} must be >= 1, got {page}")
+    
+    def _validate_page_size(self, page_size: int, field_name: str = "page_size") -> None:
+        """Validate that page size is positive."""
+        if not isinstance(page_size, int):
+            raise ValidationError(f"{field_name} must be an integer, got {type(page_size).__name__}")
+        if page_size < 1:
+            raise ValidationError(f"{field_name} must be >= 1, got {page_size}")
+    
+    def _validate_hex_string(self, value: str, field_name: str = "hex_string") -> None:
+        """Validate that value is a valid hex string."""
+        sanitized = self._sanitize_input(value, field_name)
+        try:
+            int(sanitized, 16)
+        except ValueError:
+            raise ValidationError(f"{field_name} must be a valid hexadecimal string")
+    
+    def _validate_houdini_id(self, houdini_id: str) -> None:
+        """Validate houdini ID format."""
+        sanitized = self._sanitize_input(houdini_id, "houdini_id")
+        # Houdini IDs are typically alphanumeric, 20-30 chars
+        if not sanitized.replace('_', '').replace('-', '').isalnum():
+            raise ValidationError("houdini_id must be alphanumeric (may include _ or -)")
+        if len(sanitized) < 10 or len(sanitized) > 50:
+            raise ValidationError(f"houdini_id must be between 10 and 50 characters, got {len(sanitized)}")
+    
+    def _validate_address(self, address: str, network: Optional["Network"] = None, field_name: str = "address") -> None:
+        """
+        Validate address format.
+        
+        Args:
+            address: Address to validate
+            network: Optional Network object with address_validation regex
+            field_name: Name of field for error messages
+        """
+        import re
+        sanitized = self._sanitize_input(address, field_name)
+        
+        # If network provided, use its validation regex
+        if network and network.address_validation:
+            try:
+                pattern = re.compile(network.address_validation)
+                if not pattern.match(sanitized):
+                    raise ValidationError(
+                        f"{field_name} does not match expected format for network {network.name}: {network.address_validation}"
+                    )
+            except re.error:
+                # Invalid regex in network data - skip regex validation
+                pass
+        
+        # Basic validation: addresses should be reasonable length
+        if len(sanitized) < 10 or len(sanitized) > 200:
+            raise ValidationError(f"{field_name} length must be between 10 and 200 characters")
+    
+    def _sign_request(self, method: str, url: str, params: Optional[Dict[str, Any]] = None, 
+                     json_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Sign request for authentication (extensible for future signing requirements).
+        
+        Currently a no-op as the API only requires basic auth.
+        Can be extended if API adds request signing requirements.
+        
+        Args:
+            method: HTTP method
+            url: Request URL
+            params: Query parameters
+            json_data: JSON body
+            
+        Returns:
+            Dictionary of headers/parameters to add to request
+        """
+        # Placeholder for future request signing
+        # If API adds signing requirements, implement here
+        return {}
     
     def _request(
         self,
@@ -429,6 +550,15 @@ class HoudiniSwapClient:
         Side Effects:
             Makes a network request. No local state is modified.
         """
+        # Validate inputs
+        try:
+            amount_float = float(amount)
+            self._validate_amount(amount_float, "amount")
+        except (ValueError, TypeError):
+            raise ValidationError(f"amount must be a valid number, got {type(amount).__name__}")
+        self._validate_token_id(token_id_from, "token_id_from")
+        self._validate_token_id(token_id_to, "token_id_to")
+        
         # Create fresh params dict for each call (no mutable defaults)
         params = {
             "amount": amount,
@@ -509,6 +639,12 @@ class HoudiniSwapClient:
             Creates a transaction on the Houdini Swap platform. This is a state-changing operation.
             The transaction will be processed asynchronously. Use get_status() to check progress.
         """
+        # Validate inputs
+        self._validate_amount(amount, "amount")
+        self._sanitize_input(from_token, "from_token")
+        self._sanitize_input(to_token, "to_token")
+        self._sanitize_input(address_to, "address_to")
+        
         json_data = {
             "amount": amount,
             "from": from_token,
@@ -542,7 +678,7 @@ class HoudiniSwapClient:
         address_to: str,
         swap: str,
         quote_id: str,
-        route: Dict[str, Any],
+        route: RouteDTO,
     ) -> ExchangeResponse:
         """
         Initiate a DEX exchange transaction.
@@ -590,7 +726,7 @@ class HoudiniSwapClient:
             "addressTo": address_to,
             "swap": swap,
             "quoteId": quote_id,
-            "route": route,
+            "route": route.to_dict() if isinstance(route, RouteDTO) else route,
         }
         
         response = self._request("POST", ENDPOINT_DEX_EXCHANGE, json_data=json_data)
@@ -605,7 +741,7 @@ class HoudiniSwapClient:
         address_from: str,
         amount: float,
         swap: str,
-        route: Dict[str, Any],
+        route: RouteDTO,
     ) -> List[DexApproveResponse]:
         """
         Initiate a token approval transaction for DEX exchange.
@@ -641,13 +777,20 @@ class HoudiniSwapClient:
             Prepares approval transaction data. User must sign and broadcast the transaction
             on the blockchain. This does not automatically approve tokens.
         """
+        # Validate inputs
+        self._validate_amount(amount, "amount")
+        self._validate_token_id(token_id_from, "token_id_from")
+        self._validate_token_id(token_id_to, "token_id_to")
+        self._sanitize_input(address_from, "address_from")
+        self._sanitize_input(swap, "swap")
+        
         json_data = {
             "tokenIdFrom": token_id_from,
             "tokenIdTo": token_id_to,
             "addressFrom": address_from,
             "amount": amount,
             "swap": swap,
-            "route": route,
+            "route": route.to_dict() if isinstance(route, RouteDTO) else route,
         }
         
         response = self._request("POST", ENDPOINT_DEX_APPROVE, json_data=json_data)
@@ -682,6 +825,10 @@ class HoudiniSwapClient:
         Returns:
             True if confirmation was successful
         """
+        # Validate inputs
+        self._sanitize_input(transaction_id, "transaction_id")
+        self._validate_hex_string(tx_hash, "tx_hash")
+        
         json_data = {
             "id": transaction_id,
             "txHash": tx_hash,
@@ -705,6 +852,9 @@ class HoudiniSwapClient:
         Returns:
             Status object
         """
+        # Validate inputs
+        self._validate_houdini_id(houdini_id)
+        
         # Create fresh params dict for each call (no mutable defaults)
         params = {"id": houdini_id}
         response = self._request("GET", ENDPOINT_STATUS, params=params)
@@ -732,6 +882,10 @@ class HoudiniSwapClient:
         Returns:
             MinMax object with min and max amounts
         """
+        # Validate inputs
+        self._sanitize_input(from_token, "from_token")
+        self._sanitize_input(to_token, "to_token")
+        
         # Create fresh params dict for each call (no mutable defaults)
         params = {
             "from": from_token,
