@@ -104,6 +104,8 @@ class HoudiniSwapClient:
         'api_version',
         'session',
         'verify_ssl',
+        'max_retries',
+        'retry_backoff_factor',
         'logger',
         'cache_enabled',
         'cache_ttl',
