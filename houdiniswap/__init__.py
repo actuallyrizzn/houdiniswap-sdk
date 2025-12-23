@@ -19,6 +19,7 @@ from .models import (
     WeeklyVolume,
     MinMax,
     TransactionStatus,
+    RouteDTO,
 )
 from .exceptions import (
     HoudiniSwapError,
@@ -44,6 +45,7 @@ __all__ = [
     "WeeklyVolume",
     "MinMax",
     "TransactionStatus",
+    "RouteDTO",
     "HoudiniSwapError",
     "AuthenticationError",
     "APIError",
