@@ -171,15 +171,15 @@ class HoudiniSwapClient:
         else:
             self.base_url = os.getenv(ENV_VAR_API_URL, BASE_URL_PRODUCTION)
         
-        self.timeout = timeout or DEFAULT_TIMEOUT
-        self.api_version = api_version or API_VERSION_DEFAULT
-        self.verify_ssl = verify_ssl
-        self.max_retries = max_retries
-        self.retry_backoff_factor = retry_backoff_factor
+        object.__setattr__(self, 'timeout', timeout or DEFAULT_TIMEOUT)
+        object.__setattr__(self, 'api_version', api_version or API_VERSION_DEFAULT)
+        object.__setattr__(self, 'verify_ssl', verify_ssl)
+        object.__setattr__(self, 'max_retries', max_retries)
+        object.__setattr__(self, 'retry_backoff_factor', retry_backoff_factor)
         
         # Caching configuration
-        self.cache_enabled = cache_enabled
-        self.cache_ttl = cache_ttl
+        object.__setattr__(self, 'cache_enabled', cache_enabled)
+        object.__setattr__(self, 'cache_ttl', cache_ttl)
         object.__setattr__(self, '_token_cache', {})  # key -> (data, timestamp)
         
         # Setup logging
