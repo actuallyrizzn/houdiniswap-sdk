@@ -1,7 +1,7 @@
 """Main client for Houdini Swap API."""
 
 import requests
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TypeGuard
 from urllib.parse import urljoin
 
 from .constants import (
@@ -47,6 +47,16 @@ from .models import (
     WeeklyVolume,
     TransactionStatus,
 )
+
+
+def _is_list_response(response: Dict[str, Any]) -> TypeGuard[List[Dict[str, Any]]]:
+    """Type guard to help type checkers understand list responses."""
+    return isinstance(response, list)
+
+
+def _is_dict_response(response: Dict[str, Any]) -> TypeGuard[Dict[str, Any]]:
+    """Type guard to help type checkers understand dict responses."""
+    return isinstance(response, dict)
 
 
 class HoudiniSwapClient:
@@ -99,6 +109,9 @@ class HoudiniSwapClient:
         if not api_key or not api_secret:
             raise ValidationError(ERROR_INVALID_CREDENTIALS)
         
+        # Validate credentials format
+        self._validate_credentials(api_key, api_secret)
+        
         self.api_key = api_key
         self.api_secret = api_secret
         self.base_url = base_url or self.BASE_URL
@@ -110,6 +123,30 @@ class HoudiniSwapClient:
             "Authorization": f"{api_key}:{api_secret}",
             "Content-Type": "application/json",
         })
+    
+    def _validate_credentials(self, api_key: str, api_secret: str) -> None:
+        """
+        Validate API credentials format.
+        
+        Args:
+            api_key: API key to validate
+            api_secret: API secret to validate
+            
+        Raises:
+            ValidationError: If credentials are invalid
+        """
+        # Check for colon character (would break Authorization header format)
+        if ":" in api_key or ":" in api_secret:
+            raise ValidationError("API key and secret cannot contain ':' character")
+        
+        # Validate length (HTTP headers typically have 8KB limit, be conservative)
+        MAX_CREDENTIAL_LENGTH = 1000
+        if len(api_key) > MAX_CREDENTIAL_LENGTH or len(api_secret) > MAX_CREDENTIAL_LENGTH:
+            raise ValidationError(f"API credentials exceed maximum length of {MAX_CREDENTIAL_LENGTH} characters")
+        
+        # Check for empty strings (already checked above, but double-check)
+        if not api_key.strip() or not api_secret.strip():
+            raise ValidationError(ERROR_INVALID_CREDENTIALS)
     
     def _request(
         self,
@@ -160,16 +197,18 @@ class HoudiniSwapClient:
             
             # Handle other HTTP errors
             if response.status_code >= HTTP_STATUS_BAD_REQUEST:
+                error_data = None
                 try:
                     error_data = response.json()
                     error_message = error_data.get("message", f"API error: {response.status_code}")
                 except ValueError:
-                    error_message = f"API error: {response.status_code} - {response.text}"
+                    # JSON parsing failed - include raw response text (limit length)
+                    error_message = f"API error: {response.status_code} - {response.text[:500]}"
                 
                 raise APIError(
                     error_message,
                     status_code=response.status_code,
-                    response=error_data if 'error_data' in locals() else None,
+                    response=error_data,
                 )
             
             # Parse JSON response
@@ -180,11 +219,24 @@ class HoudiniSwapClient:
                 return {"response": response.text}
                 
         except requests.exceptions.RequestException as e:
-            raise NetworkError(ERROR_NETWORK.format(str(e)))
+            raise NetworkError(ERROR_NETWORK.format(str(e))) from e
         except (APIError, AuthenticationError):
             raise
         except Exception as e:
-            raise HoudiniSwapError(ERROR_UNEXPECTED.format(str(e)))
+            raise HoudiniSwapError(ERROR_UNEXPECTED.format(str(e))) from e
+    
+    def __enter__(self) -> "HoudiniSwapClient":
+        """Enter context manager."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit context manager and close session."""
+        self.close()
+    
+    def close(self) -> None:
+        """Close the HTTP session and release resources."""
+        if hasattr(self, 'session') and self.session:
+            self.session.close()
     
     # ==================== Token Information APIs ====================
     
@@ -370,6 +422,19 @@ class HoudiniSwapClient:
         }
         
         response = self._request("GET", ENDPOINT_DEX_QUOTE, params=params)
+        
+        # Validate response is a list
+        if not isinstance(response, list):
+            raise APIError(
+                f"Unexpected response type from DEX quote endpoint: expected list, got {type(response).__name__}",
+                status_code=None,
+                response=response,
+            )
+        
+        # Handle empty lists gracefully
+        if len(response) == 0:
+            return []
+        
         return [DEXQuote.from_dict(quote_data) for quote_data in response]
     
     # ==================== Exchange Execution APIs ====================
@@ -570,6 +635,19 @@ class HoudiniSwapClient:
         }
         
         response = self._request("POST", ENDPOINT_DEX_APPROVE, json_data=json_data)
+        
+        # Validate response is a list
+        if not isinstance(response, list):
+            raise APIError(
+                f"Unexpected response type from DEX approve endpoint: expected list, got {type(response).__name__}",
+                status_code=None,
+                response=response,
+            )
+        
+        # Handle empty lists gracefully (approval not needed)
+        if len(response) == 0:
+            return []
+        
         return [DexApproveResponse.from_dict(item) for item in response]
     
     def post_dex_confirm_tx(
@@ -594,7 +672,7 @@ class HoudiniSwapClient:
         
         response = self._request("POST", ENDPOINT_DEX_CONFIRM_TX, json_data=json_data)
         # API returns boolean true/false
-        if isinstance(response, dict) and "response" in response:
+        if _is_dict_response(response) and "response" in response:
             return response["response"].lower() == "true"
         return bool(response)
     
@@ -658,9 +736,15 @@ class HoudiniSwapClient:
         """
         response = self._request("GET", ENDPOINT_VOLUME)
         # API returns array, get first element
-        if isinstance(response, list) and len(response) > 0:
+        if _is_list_response(response) and len(response) > 0:
             return Volume.from_dict(response[0])
-        return Volume.from_dict(response)
+        if _is_dict_response(response):
+            return Volume.from_dict(response)
+        raise APIError(
+            f"Unexpected response type from volume endpoint: expected list or dict, got {type(response).__name__}",
+            status_code=None,
+            response=response,
+        )
     
     def get_weekly_volume(self) -> List[WeeklyVolume]:
         """
@@ -670,7 +754,13 @@ class HoudiniSwapClient:
             List of WeeklyVolume objects
         """
         response = self._request("GET", ENDPOINT_WEEKLY_VOLUME)
-        if isinstance(response, list):
+        if _is_list_response(response):
             return [WeeklyVolume.from_dict(item) for item in response]
-        return [WeeklyVolume.from_dict(response)]
+        if _is_dict_response(response):
+            return [WeeklyVolume.from_dict(response)]
+        raise APIError(
+            f"Unexpected response type from weekly volume endpoint: expected list or dict, got {type(response).__name__}",
+            status_code=None,
+            response=response,
+        )
 
