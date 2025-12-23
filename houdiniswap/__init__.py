@@ -28,6 +28,7 @@ from .exceptions import (
     ValidationError,
     NetworkError,
 )
+from .utils import deprecated, deprecated_parameter
 
 __version__ = "0.1.0"
 
@@ -102,5 +103,7 @@ __all__ = [
     "APIError",
     "ValidationError",
     "NetworkError",
+    "deprecated",
+    "deprecated_parameter",
 ]
 
