@@ -1154,7 +1154,7 @@ class HoudiniSwapClient:
         params = {
             "from": from_token,
             "to": to_token,
-            "anonymous": self._bool_to_str(anonymous),
+            "anonymous": anonymous,  # Send boolean directly
         }
         if cex_only is not None:
             params["cexOnly"] = cex_only  # Send boolean directly, not string
