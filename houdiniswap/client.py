@@ -1,12 +1,16 @@
 """Main client for Houdini Swap API."""
 
+import time
 import requests
-from typing import Optional, List, Dict, Any, TypeGuard
+from typing import Optional, List, Dict, Any, TypeGuard, Callable
 from urllib.parse import urljoin
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .constants import (
     DEFAULT_TIMEOUT,
     DEFAULT_PAGE_SIZE,
+    API_VERSION_DEFAULT,
+    HEADER_API_VERSION,
     HTTP_STATUS_BAD_REQUEST,
     HTTP_STATUS_UNAUTHORIZED,
     ENDPOINT_TOKENS,
@@ -86,6 +90,7 @@ class HoudiniSwapClient:
         api_secret: str,
         base_url: Optional[str] = None,
         timeout: Optional[int] = None,
+        api_version: Optional[str] = None,
     ):
         """
         Initialize the Houdini Swap client.
@@ -95,6 +100,7 @@ class HoudiniSwapClient:
             api_secret: Your Houdini Swap API secret
             base_url: Optional custom base URL (defaults to production)
             timeout: Request timeout in seconds (default: 30, see DEFAULT_TIMEOUT constant)
+            api_version: API version to use (default: "v1"). Sent as X-API-Version header.
         
         Raises:
             ValidationError: If api_key or api_secret is empty or None
@@ -116,12 +122,14 @@ class HoudiniSwapClient:
         self.api_secret = api_secret
         self.base_url = base_url or self.BASE_URL
         self.timeout = timeout or DEFAULT_TIMEOUT
+        self.api_version = api_version or API_VERSION_DEFAULT
         
         # Create session with authentication
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": f"{api_key}:{api_secret}",
             "Content-Type": "application/json",
+            HEADER_API_VERSION: self.api_version,
         })
     
     def _validate_credentials(self, api_key: str, api_secret: str) -> None:
@@ -265,6 +273,13 @@ class HoudiniSwapClient:
             Makes a network request. No local state is modified.
         """
         response = self._request("GET", ENDPOINT_TOKENS)
+        # Validate response is a list before list comprehension
+        if not isinstance(response, list):
+            raise APIError(
+                f"Unexpected response type from tokens endpoint: expected list, got {type(response).__name__}",
+                status_code=None,
+                response=response,
+            )
         return [Token.from_dict(token_data) for token_data in response]
     
     def get_dex_tokens(
@@ -435,6 +450,7 @@ class HoudiniSwapClient:
         if len(response) == 0:
             return []
         
+        # Response already validated as list above
         return [DEXQuote.from_dict(quote_data) for quote_data in response]
     
     # ==================== Exchange Execution APIs ====================
@@ -648,6 +664,7 @@ class HoudiniSwapClient:
         if len(response) == 0:
             return []
         
+        # Response already validated as list in _request error handling
         return [DexApproveResponse.from_dict(item) for item in response]
     
     def post_dex_confirm_tx(
@@ -763,4 +780,144 @@ class HoudiniSwapClient:
             status_code=None,
             response=response,
         )
+    
+    # ==================== Helper Methods ====================
+    
+    def iter_dex_tokens(
+        self,
+        chain: Optional[str] = None,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ):
+        """
+        Iterator for all DEX tokens across all pages.
+        
+        Args:
+            chain: Optional chain filter (e.g., "base")
+            page_size: Number of tokens per page (default: 100)
+            
+        Yields:
+            DEXToken objects from all pages
+            
+        Example:
+            ```python
+            for token in client.iter_dex_tokens():
+                print(token.name)
+            ```
+        """
+        page = 1
+        while True:
+            response = self.get_dex_tokens(page=page, page_size=page_size, chain=chain)
+            if not response.tokens:
+                break
+            for token in response.tokens:
+                yield token
+            # Check if there are more pages
+            total_pages = (response.count + page_size - 1) // page_size
+            if page >= total_pages:
+                break
+            page += 1
+    
+    def get_all_dex_tokens(
+        self,
+        chain: Optional[str] = None,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> List[DEXToken]:
+        """
+        Get all DEX tokens across all pages (convenience method).
+        
+        Args:
+            chain: Optional chain filter (e.g., "base")
+            page_size: Number of tokens per page (default: 100)
+            
+        Returns:
+            List of all DEXToken objects
+            
+        Note:
+            This loads all tokens into memory. For large token lists, use
+            `iter_dex_tokens()` instead for memory efficiency.
+        """
+        return list(self.iter_dex_tokens(chain=chain, page_size=page_size))
+    
+    def wait_for_status(
+        self,
+        houdini_id: str,
+        target_status: TransactionStatus,
+        timeout: int = 300,
+        poll_interval: int = 5,
+    ) -> Status:
+        """
+        Poll until transaction reaches target status.
+        
+        Args:
+            houdini_id: Unique ID of the transaction
+            target_status: Status to wait for
+            timeout: Maximum time to wait in seconds (default: 300 = 5 minutes)
+            poll_interval: Time between polls in seconds (default: 5)
+            
+        Returns:
+            Status object when target status is reached
+            
+        Raises:
+            TimeoutError: If timeout is reached before target status
+            APIError: If API returns an error
+        """
+        import time
+        start_time = time.time()
+        
+        while True:
+            status = self.get_status(houdini_id)
+            if status.status == target_status:
+                return status
+            
+            if time.time() - start_time > timeout:
+                raise TimeoutError(
+                    f"Timeout waiting for status {target_status.name}. "
+                    f"Current status: {status.status.name}"
+                )
+            
+            time.sleep(poll_interval)
+    
+    def poll_until_finished(
+        self,
+        houdini_id: str,
+        timeout: int = 600,
+        poll_interval: int = 5,
+    ) -> Status:
+        """
+        Poll until transaction is finished (FINISHED, FAILED, EXPIRED, or REFUNDED).
+        
+        Args:
+            houdini_id: Unique ID of the transaction
+            timeout: Maximum time to wait in seconds (default: 600 = 10 minutes)
+            poll_interval: Time between polls in seconds (default: 5)
+            
+        Returns:
+            Final Status object
+            
+        Raises:
+            TimeoutError: If timeout is reached
+            APIError: If API returns an error
+        """
+        import time
+        start_time = time.time()
+        
+        final_statuses = {
+            TransactionStatus.FINISHED,
+            TransactionStatus.FAILED,
+            TransactionStatus.EXPIRED,
+            TransactionStatus.REFUNDED,
+        }
+        
+        while True:
+            status = self.get_status(houdini_id)
+            if status.status in final_statuses:
+                return status
+            
+            if time.time() - start_time > timeout:
+                raise TimeoutError(
+                    f"Timeout waiting for transaction to finish. "
+                    f"Current status: {status.status.name}"
+                )
+            
+            time.sleep(poll_interval)
 
