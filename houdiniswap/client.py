@@ -507,7 +507,44 @@ class HoudiniSwapClient:
                     self.logger.warning("Authentication failed")
                     raise AuthenticationError(ERROR_AUTHENTICATION_FAILED)
                 
-                # Handle retryable HTTP errors
+                # Handle rate limiting (429) with special backoff
+                if response.status_code == HTTP_STATUS_TOO_MANY_REQUESTS:
+                    if attempt < self.max_retries:
+                        # Check for Retry-After header (seconds to wait)
+                        retry_after = response.headers.get("Retry-After")
+                        if retry_after:
+                            try:
+                                wait_time = float(retry_after)
+                            except (ValueError, TypeError):
+                                # If Retry-After is invalid, use exponential backoff
+                                wait_time = self.retry_backoff_factor * (2 ** attempt) * 2  # Longer backoff for rate limits
+                        else:
+                            # No Retry-After header, use longer exponential backoff
+                            wait_time = self.retry_backoff_factor * (2 ** attempt) * 2  # 2x longer for rate limits
+                        
+                        self.logger.warning(
+                            f"Rate limit exceeded (429) (attempt {attempt + 1}/{self.max_retries + 1}). "
+                            f"Retrying in {wait_time:.2f}s..."
+                        )
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        # Max retries reached for rate limit
+                        error_data = None
+                        try:
+                            error_data = response.json()
+                            error_message = error_data.get("message", "Rate limit exceeded")
+                        except ValueError:
+                            error_message = "Rate limit exceeded"
+                        
+                        self.logger.error(f"Rate limit exceeded after {self.max_retries + 1} attempts")
+                        raise APIError(
+                            f"{error_message}. Please wait before retrying.",
+                            status_code=response.status_code,
+                            response=error_data,
+                        )
+                
+                # Handle other retryable HTTP errors
                 if response.status_code in retryable_statuses:
                     if attempt < self.max_retries:
                         wait_time = self.retry_backoff_factor * (2 ** attempt)
