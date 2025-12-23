@@ -6,7 +6,11 @@ import time
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from typing import Optional, List, Dict, Any, TypeGuard, Callable, Union
+from typing import Optional, List, Dict, Any, Callable, Union
+try:
+    from typing import TypeGuard  # Python 3.10+
+except ImportError:
+    from typing_extensions import TypeGuard  # Python 3.8-3.9
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
