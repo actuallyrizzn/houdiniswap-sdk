@@ -167,9 +167,9 @@ class HoudiniSwapClient:
         
         # Base URL resolution: parameter > environment variable > default
         if base_url:
-            self.base_url = base_url
+            object.__setattr__(self, 'base_url', base_url)
         else:
-            self.base_url = os.getenv(ENV_VAR_API_URL, BASE_URL_PRODUCTION)
+            object.__setattr__(self, 'base_url', os.getenv(ENV_VAR_API_URL, BASE_URL_PRODUCTION))
         
         object.__setattr__(self, 'timeout', timeout or DEFAULT_TIMEOUT)
         object.__setattr__(self, 'api_version', api_version or API_VERSION_DEFAULT)
