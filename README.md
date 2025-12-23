@@ -708,7 +708,9 @@ client = HoudiniSwapClient(
 
 ## License
 
-MIT License
+**Code:** This project is licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See [LICENSE](LICENSE) for details.
+
+**Documentation:** All documentation and non-code content is licensed under the Creative Commons Attribution-ShareAlike 4.0 International License (CC-BY-SA 4.0). See [LICENSE-DOCS](LICENSE-DOCS) for details.
 
 ## Support
 
