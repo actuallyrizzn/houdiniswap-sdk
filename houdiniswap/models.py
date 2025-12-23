@@ -1,8 +1,9 @@
 """Data models for Houdini Swap API responses."""
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from dataclasses import dataclass
 from enum import IntEnum
+from decimal import Decimal
 
 from .exceptions import ValidationError
 
@@ -162,12 +163,34 @@ class DEXToken:
 
 
 @dataclass(frozen=True)
+class RouteDTO:
+    """Route DTO for DEX transactions."""
+    # Route structure is complex and may vary, so we store the raw dict
+    # but provide typed access to common fields
+    raw: Dict[str, Any]
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RouteDTO":
+        """Create RouteDTO from API response."""
+        if not isinstance(data, dict):
+            raise ValidationError(f"Expected dict for RouteDTO, got {type(data).__name__}")
+        return cls(raw=data)
+    
+    def __repr__(self) -> str:
+        return f"RouteDTO(bridge={self.raw.get('bridge', 'unknown') if isinstance(self.raw, dict) else 'N/A'})"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert RouteDTO back to dictionary for API requests."""
+        return self.raw
+
+
+@dataclass(frozen=True)
 class Quote:
     """Quote information."""
-    amount_in: float
-    amount_out: float
-    min: Optional[float] = None
-    max: Optional[float] = None
+    amount_in: Decimal
+    amount_out: Decimal
+    min: Optional[Decimal] = None
+    max: Optional[Decimal] = None
     use_xmr: Optional[bool] = None
     duration: Optional[int] = None
     device_info: Optional[str] = None
@@ -177,11 +200,20 @@ class Quote:
     @classmethod
     def from_dict(cls, data: dict) -> "Quote":
         """Create Quote from API response."""
+        if not isinstance(data, dict):
+            raise ValidationError(f"Expected dict for Quote, got {type(data).__name__}")
+        
+        def to_decimal(value):
+            """Convert value to Decimal, handling None."""
+            if value is None:
+                return None
+            return Decimal(str(value))
+        
         return cls(
-            amount_in=data.get("amountIn", 0.0),
-            amount_out=data.get("amountOut", 0.0),
-            min=data.get("min"),
-            max=data.get("max"),
+            amount_in=to_decimal(data.get("amountIn", 0)),
+            amount_out=to_decimal(data.get("amountOut", 0)),
+            min=to_decimal(data.get("min")),
+            max=to_decimal(data.get("max")),
             use_xmr=data.get("useXmr"),
             duration=data.get("duration"),
             device_info=data.get("deviceInfo"),
@@ -198,25 +230,31 @@ class DEXQuote:
     """DEX quote information."""
     swap: str
     quote_id: str
-    amount_out: float
-    amount_out_usd: Optional[float] = None
+    amount_out: Decimal
+    amount_out_usd: Optional[Decimal] = None
     duration: Optional[int] = None
     gas: Optional[int] = None
-    fee_usd: Optional[float] = None
+    fee_usd: Optional[Decimal] = None
     path: Optional[List[str]] = None
     raw: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "DEXQuote":
         """Create DEXQuote from API response."""
+        def to_decimal(value):
+            """Convert value to Decimal, handling None."""
+            if value is None:
+                return None
+            return Decimal(str(value))
+        
         return cls(
             swap=data.get("swap", ""),
             quote_id=data.get("quoteId", ""),
-            amount_out=data.get("amountOut", 0.0),
-            amount_out_usd=data.get("amountOutUsd"),
+            amount_out=to_decimal(data.get("amountOut", 0)),
+            amount_out_usd=to_decimal(data.get("amountOutUsd")),
             duration=data.get("duration"),
             gas=data.get("gas"),
-            fee_usd=data.get("feeUsd"),
+            fee_usd=to_decimal(data.get("feeUsd")),
             path=data.get("path"),
             raw=data.get("raw"),
         )
@@ -235,19 +273,19 @@ class ExchangeResponse:
     anonymous: bool
     expires: str
     status: int
-    in_amount: float
+    in_amount: Decimal
     in_symbol: str
-    out_amount: float
+    out_amount: Decimal
     out_symbol: str
     sender_tag: Optional[str] = None
     receiver_tag: Optional[str] = None
     notified: Optional[bool] = None
     eta: Optional[int] = None
-    in_amount_usd: Optional[float] = None
+    in_amount_usd: Optional[Decimal] = None
     in_created: Optional[str] = None
-    quote: Optional[Dict[str, Any]] = None
-    out_token: Optional[Dict[str, Any]] = None
-    in_token: Optional[Dict[str, Any]] = None
+    quote: Optional[Quote] = None
+    out_token: Optional[Token] = None
+    in_token: Optional[Token] = None
     metadata: Optional[Dict[str, Any]] = None
     is_dex: Optional[bool] = None
 
@@ -263,6 +301,22 @@ class ExchangeResponse:
         if missing_fields:
             raise ValidationError(f"Missing required fields for ExchangeResponse: {', '.join(missing_fields)}")
         
+        # Parse nested objects
+        quote_data = data.get("quote")
+        quote = Quote.from_dict(quote_data) if quote_data and isinstance(quote_data, dict) else None
+        
+        out_token_data = data.get("outToken")
+        out_token = Token.from_dict(out_token_data) if out_token_data and isinstance(out_token_data, dict) else None
+        
+        in_token_data = data.get("inToken")
+        in_token = Token.from_dict(in_token_data) if in_token_data and isinstance(in_token_data, dict) else None
+        
+        def to_decimal(value, default=Decimal('0')):
+            """Convert value to Decimal."""
+            if value is None:
+                return default if default is not None else None
+            return Decimal(str(value))
+        
         return cls(
             houdini_id=data.get("houdiniId", ""),
             created=data.get("created", ""),
@@ -271,19 +325,19 @@ class ExchangeResponse:
             anonymous=data.get("anonymous", False),
             expires=data.get("expires", ""),
             status=data.get("status", 0),
-            in_amount=data.get("inAmount", 0.0),
+            in_amount=to_decimal(data.get("inAmount", 0)),
             in_symbol=data.get("inSymbol", ""),
-            out_amount=data.get("outAmount", 0.0),
+            out_amount=to_decimal(data.get("outAmount", 0)),
             out_symbol=data.get("outSymbol", ""),
             sender_tag=data.get("senderTag"),
             receiver_tag=data.get("receiverTag"),
             notified=data.get("notified"),
             eta=data.get("eta"),
-            in_amount_usd=data.get("inAmountUsd"),
+            in_amount_usd=to_decimal(data.get("inAmountUsd"), default=None),
             in_created=data.get("inCreated"),
-            quote=data.get("quote"),
-            out_token=data.get("outToken"),
-            in_token=data.get("inToken"),
+            quote=quote,
+            out_token=out_token,
+            in_token=in_token,
             metadata=data.get("metadata"),
             is_dex=data.get("isDex"),
         )
@@ -379,15 +433,18 @@ class Status:
 @dataclass(frozen=True)
 class MinMax:
     """Min-Max exchange amounts."""
-    min: float
-    max: float
+    min: Decimal
+    max: Decimal
 
     @classmethod
-    def from_list(cls, data: List[float]) -> "MinMax":
+    def from_list(cls, data: List[Union[float, str, Decimal]]) -> "MinMax":
         """Create MinMax from API response array."""
         if len(data) < 2:
             raise ValueError("MinMax requires at least 2 elements")
-        return cls(min=data[0], max=data[1])
+        return cls(
+            min=Decimal(str(data[0])),
+            max=Decimal(str(data[1]))
+        )
     
     def __repr__(self) -> str:
         return f"MinMax(min={self.min}, max={self.max})"
@@ -397,14 +454,14 @@ class MinMax:
 class Volume:
     """Volume information."""
     count: int
-    total_transacted_usd: float
+    total_transacted_usd: Decimal
 
     @classmethod
     def from_dict(cls, data: dict) -> "Volume":
         """Create Volume from API response."""
         return cls(
             count=data.get("count", 0),
-            total_transacted_usd=data.get("totalTransactedUSD", 0.0),
+            total_transacted_usd=Decimal(str(data.get("totalTransactedUSD", 0))),
         )
     
     def __repr__(self) -> str:
@@ -426,10 +483,10 @@ class WeeklyVolume:
     """Weekly volume information."""
     count: int
     anonymous: int
-    volume: float
+    volume: Decimal
     week: int
     year: int
-    commission: float
+    commission: Decimal
 
     @classmethod
     def from_dict(cls, data: dict) -> "WeeklyVolume":
@@ -437,10 +494,10 @@ class WeeklyVolume:
         return cls(
             count=data.get("count", 0),
             anonymous=data.get("anonymous", 0),
-            volume=data.get("volume", 0.0),
+            volume=Decimal(str(data.get("volume", 0))),
             week=data.get("week", 0),
             year=data.get("year", 0),
-            commission=data.get("commission", 0.0),
+            commission=Decimal(str(data.get("commission", 0))),
         )
     
     def __repr__(self) -> str:

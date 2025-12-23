@@ -9,6 +9,7 @@ setup(
     name="houdiniswap-sdk",
     version="0.1.0",
     author="Houdini Swap SDK Contributors",
+    author_email="sdk@houdiniswap.com",
     description="Python SDK for Houdini Swap API",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -39,5 +40,14 @@ setup(
             "mypy>=1.0.0",
         ],
     },
+    license="MIT",
+    keywords=["houdiniswap", "crypto", "exchange", "swap", "api", "sdk"],
+    project_urls={
+        "Bug Tracker": "https://github.com/houdiniswap/houdiniswap-sdk-python/issues",
+        "Documentation": "https://github.com/houdiniswap/houdiniswap-sdk-python/blob/main/README.md",
+        "Source Code": "https://github.com/houdiniswap/houdiniswap-sdk-python",
+    },
+    zip_safe=False,
+    include_package_data=True,
 )
 

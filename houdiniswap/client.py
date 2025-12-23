@@ -1,10 +1,18 @@
 """Main client for Houdini Swap API."""
 
+<<<<<<< HEAD
 import logging
 import os
 import time
 from typing import Optional, List, Dict, Any, TypeGuard
+=======
+import time
+import requests
+from typing import Optional, List, Dict, Any, TypeGuard, Callable, Union
+>>>>>>> origin/main
 from urllib.parse import urljoin
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from decimal import Decimal
 
 import requests
 
@@ -12,10 +20,15 @@ from .constants import (
     BASE_URL_PRODUCTION,
     DEFAULT_TIMEOUT,
     DEFAULT_PAGE_SIZE,
+<<<<<<< HEAD
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_BACKOFF_FACTOR,
     DEFAULT_CACHE_TTL,
     ENV_VAR_API_URL,
+=======
+    API_VERSION_DEFAULT,
+    HEADER_API_VERSION,
+>>>>>>> origin/main
     HTTP_STATUS_BAD_REQUEST,
     HTTP_STATUS_UNAUTHORIZED,
     HTTP_STATUS_TOO_MANY_REQUESTS,
@@ -60,6 +73,7 @@ from .models import (
     Volume,
     WeeklyVolume,
     TransactionStatus,
+    RouteDTO,
 )
 
 
@@ -88,9 +102,23 @@ class HoudiniSwapClient:
         are synchronous and will block until a response is received or timeout occurs.
     
     Side Effects:
-        Creates and maintains an HTTP session. Credentials are stored in instance
-        attributes (consider security implications).
+        Creates and maintains an HTTP session. Credentials are stored securely
+        in private attributes to prevent direct access.
     """
+    
+    __slots__ = (
+        '_api_key',
+        '_api_secret',
+        'base_url',
+        'timeout',
+        'api_version',
+        'session',
+        'verify_ssl',
+        'logger',
+        'cache_enabled',
+        'cache_ttl',
+        '_token_cache',
+    )
     
     BASE_URL = "https://api-partner.houdiniswap.com"
     
@@ -100,11 +128,16 @@ class HoudiniSwapClient:
         api_secret: str,
         base_url: Optional[str] = None,
         timeout: Optional[int] = None,
+<<<<<<< HEAD
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_backoff_factor: float = DEFAULT_RETRY_BACKOFF_FACTOR,
         cache_enabled: bool = True,
         cache_ttl: int = DEFAULT_CACHE_TTL,
         log_level: Optional[int] = None,
+=======
+        api_version: Optional[str] = None,
+        verify_ssl: bool = True,
+>>>>>>> origin/main
     ):
         """
         Initialize the Houdini Swap client.
@@ -115,11 +148,16 @@ class HoudiniSwapClient:
             base_url: Optional custom base URL. If not provided, checks HOUDINI_SWAP_API_URL
                      environment variable, then defaults to production URL.
             timeout: Request timeout in seconds (default: 30, see DEFAULT_TIMEOUT constant)
+<<<<<<< HEAD
             max_retries: Maximum number of retry attempts for failed requests (default: 3)
             retry_backoff_factor: Multiplier for exponential backoff (default: 1.0)
             cache_enabled: Enable caching for token lists (default: True)
             cache_ttl: Cache time-to-live in seconds (default: 300 = 5 minutes)
             log_level: Logging level (logging.DEBUG, INFO, WARNING, ERROR). Default: WARNING.
+=======
+            api_version: API version to use (default: "v1"). Sent as X-API-Version header.
+            verify_ssl: Whether to verify SSL certificates (default: True). Set to False only for testing.
+>>>>>>> origin/main
         
         Raises:
             ValidationError: If api_key or api_secret is empty or None
@@ -130,8 +168,12 @@ class HoudiniSwapClient:
             - Base URL can be set via environment variable HOUDINI_SWAP_API_URL
         
         Side Effects:
+<<<<<<< HEAD
             Creates a requests.Session() object and stores credentials as instance attributes.
             Sets up logging if log_level is provided.
+=======
+            Creates a requests.Session() object and stores credentials securely in private attributes
+>>>>>>> origin/main
         """
         if not api_key or not api_secret:
             raise ValidationError(ERROR_INVALID_CREDENTIALS)
@@ -139,6 +181,7 @@ class HoudiniSwapClient:
         # Validate credentials format
         self._validate_credentials(api_key, api_secret)
         
+<<<<<<< HEAD
         self.api_key = api_key
         self.api_secret = api_secret
         
@@ -168,13 +211,40 @@ class HoudiniSwapClient:
                     '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
                 ))
                 self.logger.addHandler(handler)
+=======
+        # Store credentials in private attributes to prevent direct access
+        object.__setattr__(self, '_api_key', api_key)
+        object.__setattr__(self, '_api_secret', api_secret)
+        self.base_url = base_url or self.BASE_URL
+        self.timeout = timeout or DEFAULT_TIMEOUT
+        self.api_version = api_version or API_VERSION_DEFAULT
+        self.verify_ssl = verify_ssl
+>>>>>>> origin/main
         
-        # Create session with authentication
-        self.session = requests.Session()
+        # Create session with authentication and explicit SSL verification
+        object.__setattr__(self, 'session', requests.Session())
+        # Use private attributes for credentials in header
         self.session.headers.update({
-            "Authorization": f"{api_key}:{api_secret}",
+            "Authorization": f"{self._api_key}:{self._api_secret}",
             "Content-Type": "application/json",
+            HEADER_API_VERSION: self.api_version,
         })
+        # Explicitly set SSL verification
+        self.session.verify = verify_ssl
+    
+    def __getattribute__(self, name: str):
+        """Prevent direct access to credentials."""
+        if name in ('api_key', 'api_secret'):
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{name}'. "
+                "Credentials are stored securely and cannot be accessed directly. "
+                "Use the client methods to interact with the API."
+            )
+        return object.__getattribute__(self, name)
+    
+    def __repr__(self) -> str:
+        """String representation that doesn't expose credentials."""
+        return f"<{self.__class__.__name__}(base_url='{self.base_url}')>"
     
     def _validate_credentials(self, api_key: str, api_secret: str) -> None:
         """
@@ -200,12 +270,163 @@ class HoudiniSwapClient:
         if not api_key.strip() or not api_secret.strip():
             raise ValidationError(ERROR_INVALID_CREDENTIALS)
     
+<<<<<<< HEAD
     def _redact_credentials(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Redact credentials from data for logging."""
         redacted = dict(data)
         if "Authorization" in redacted:
             redacted["Authorization"] = "***REDACTED***"
         return redacted
+=======
+    def _sanitize_input(self, value: str, field_name: str = "input") -> str:
+        """
+        Sanitize user input to prevent injection attacks.
+        
+        Args:
+            value: Input string to sanitize
+            field_name: Name of the field for error messages
+            
+        Returns:
+            Sanitized string (stripped of whitespace)
+            
+        Raises:
+            ValidationError: If input is invalid
+        """
+        if not isinstance(value, str):
+            raise ValidationError(f"{field_name} must be a string, got {type(value).__name__}")
+        
+        sanitized = value.strip()
+        if not sanitized:
+            raise ValidationError(f"{field_name} cannot be empty")
+        
+        # Check for potentially dangerous characters
+        dangerous_chars = ['\n', '\r', '\t', '\x00']
+        for char in dangerous_chars:
+            if char in sanitized:
+                raise ValidationError(f"{field_name} contains invalid characters")
+        
+        return sanitized
+    
+    def _validate_amount(self, amount: float, field_name: str = "amount") -> None:
+        """Validate that amount is positive."""
+        if not isinstance(amount, (int, float)):
+            raise ValidationError(f"{field_name} must be a number, got {type(amount).__name__}")
+        if amount <= 0:
+            raise ValidationError(f"{field_name} must be greater than 0, got {amount}")
+    
+    def _normalize_amount(self, amount: Union[str, Decimal, float]) -> str:
+        """Normalize amount to string for API requests."""
+        if isinstance(amount, Decimal):
+            return str(amount)
+        if isinstance(amount, (int, float)):
+            # Convert to Decimal first to avoid precision issues, then to string
+            return str(Decimal(str(amount)))
+        if isinstance(amount, str):
+            # Validate it's a valid number
+            try:
+                Decimal(amount)
+                return amount
+            except (ValueError, TypeError):
+                raise ValidationError(f"amount must be a valid number, got {amount!r}")
+        raise ValidationError(f"amount must be str, Decimal, or number, got {type(amount).__name__}")
+    
+    def _normalize_amount_to_decimal(self, amount: Union[str, Decimal, float]) -> Decimal:
+        """Normalize amount to Decimal for internal use."""
+        if isinstance(amount, Decimal):
+            return amount
+        if isinstance(amount, (int, float)):
+            return Decimal(str(amount))
+        if isinstance(amount, str):
+            try:
+                return Decimal(amount)
+            except (ValueError, TypeError):
+                raise ValidationError(f"amount must be a valid number, got {amount!r}")
+        raise ValidationError(f"amount must be str, Decimal, or number, got {type(amount).__name__}")
+    
+    def _validate_token_id(self, token_id: str, field_name: str = "token_id") -> None:
+        """Validate that token ID is non-empty."""
+        self._sanitize_input(token_id, field_name)
+    
+    def _validate_page(self, page: int, field_name: str = "page") -> None:
+        """Validate that page number is positive."""
+        if not isinstance(page, int):
+            raise ValidationError(f"{field_name} must be an integer, got {type(page).__name__}")
+        if page < 1:
+            raise ValidationError(f"{field_name} must be >= 1, got {page}")
+    
+    def _validate_page_size(self, page_size: int, field_name: str = "page_size") -> None:
+        """Validate that page size is positive."""
+        if not isinstance(page_size, int):
+            raise ValidationError(f"{field_name} must be an integer, got {type(page_size).__name__}")
+        if page_size < 1:
+            raise ValidationError(f"{field_name} must be >= 1, got {page_size}")
+    
+    def _validate_hex_string(self, value: str, field_name: str = "hex_string") -> None:
+        """Validate that value is a valid hex string."""
+        sanitized = self._sanitize_input(value, field_name)
+        try:
+            int(sanitized, 16)
+        except ValueError:
+            raise ValidationError(f"{field_name} must be a valid hexadecimal string")
+    
+    def _validate_houdini_id(self, houdini_id: str) -> None:
+        """Validate houdini ID format."""
+        sanitized = self._sanitize_input(houdini_id, "houdini_id")
+        # Houdini IDs are typically alphanumeric, 20-30 chars
+        if not sanitized.replace('_', '').replace('-', '').isalnum():
+            raise ValidationError("houdini_id must be alphanumeric (may include _ or -)")
+        if len(sanitized) < 10 or len(sanitized) > 50:
+            raise ValidationError(f"houdini_id must be between 10 and 50 characters, got {len(sanitized)}")
+    
+    def _validate_address(self, address: str, network: Optional["Network"] = None, field_name: str = "address") -> None:
+        """
+        Validate address format.
+        
+        Args:
+            address: Address to validate
+            network: Optional Network object with address_validation regex
+            field_name: Name of field for error messages
+        """
+        import re
+        sanitized = self._sanitize_input(address, field_name)
+        
+        # If network provided, use its validation regex
+        if network and network.address_validation:
+            try:
+                pattern = re.compile(network.address_validation)
+                if not pattern.match(sanitized):
+                    raise ValidationError(
+                        f"{field_name} does not match expected format for network {network.name}: {network.address_validation}"
+                    )
+            except re.error:
+                # Invalid regex in network data - skip regex validation
+                pass
+        
+        # Basic validation: addresses should be reasonable length
+        if len(sanitized) < 10 or len(sanitized) > 200:
+            raise ValidationError(f"{field_name} length must be between 10 and 200 characters")
+    
+    def _sign_request(self, method: str, url: str, params: Optional[Dict[str, Any]] = None, 
+                     json_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Sign request for authentication (extensible for future signing requirements).
+        
+        Currently a no-op as the API only requires basic auth.
+        Can be extended if API adds request signing requirements.
+        
+        Args:
+            method: HTTP method
+            url: Request URL
+            params: Query parameters
+            json_data: JSON body
+            
+        Returns:
+            Dictionary of headers/parameters to add to request
+        """
+        # Placeholder for future request signing
+        # If API adds signing requirements, implement here
+        return {}
+>>>>>>> origin/main
     
     def _request(
         self,
@@ -241,6 +462,7 @@ class HoudiniSwapClient:
         safe_params = dict(params) if params else None
         safe_json_data = dict(json_data) if json_data else None
         
+<<<<<<< HEAD
         # Status codes that should trigger retries
         retryable_statuses = [
             HTTP_STATUS_TOO_MANY_REQUESTS,
@@ -253,6 +475,39 @@ class HoudiniSwapClient:
         last_exception = None
         
         for attempt in range(self.max_retries + 1):
+=======
+        try:
+            response = self.session.request(
+                method=method,
+                url=url,
+                params=safe_params,
+                json=safe_json_data,
+                timeout=self.timeout,
+                verify=self.verify_ssl,  # Explicit SSL verification
+            )
+            
+            # Handle authentication errors
+            if response.status_code == HTTP_STATUS_UNAUTHORIZED:
+                raise AuthenticationError(ERROR_AUTHENTICATION_FAILED)
+            
+            # Handle other HTTP errors
+            if response.status_code >= HTTP_STATUS_BAD_REQUEST:
+                error_data = None
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get("message", f"API error: {response.status_code}")
+                except ValueError:
+                    # JSON parsing failed - include raw response text (limit length)
+                    error_message = f"API error: {response.status_code} - {response.text[:500]}"
+                
+                raise APIError(
+                    error_message,
+                    status_code=response.status_code,
+                    response=error_data,
+                )
+            
+            # Parse JSON response
+>>>>>>> origin/main
             try:
                 # Log request (redact credentials)
                 if self.logger.isEnabledFor(logging.DEBUG):
@@ -419,6 +674,7 @@ class HoudiniSwapClient:
         
         # Fetch from API
         response = self._request("GET", ENDPOINT_TOKENS)
+<<<<<<< HEAD
         tokens = [Token.from_dict(token_data) for token_data in response]
         
         # Update cache
@@ -428,6 +684,16 @@ class HoudiniSwapClient:
                 self.logger.debug("Cached CEX tokens")
         
         return tokens
+=======
+        # Validate response is a list before list comprehension
+        if not isinstance(response, list):
+            raise APIError(
+                f"Unexpected response type from tokens endpoint: expected list, got {type(response).__name__}",
+                status_code=None,
+                response=response,
+            )
+        return [Token.from_dict(token_data) for token_data in response]
+>>>>>>> origin/main
     
     def get_dex_tokens(
         self,
@@ -553,17 +819,17 @@ class HoudiniSwapClient:
             "amount": amount,
             "from": from_token,
             "to": to_token,
-            "anonymous": str(anonymous).lower(),
+            "anonymous": anonymous,  # Send boolean directly, not string
         }
         if use_xmr is not None:
-            params["useXmr"] = str(use_xmr).lower()
+            params["useXmr"] = use_xmr  # Send boolean directly, not string
         
         response = self._request("GET", ENDPOINT_QUOTE, params=params)
         return Quote.from_dict(response)
     
     def get_dex_quote(
         self,
-        amount: str,
+        amount: Union[str, Decimal, float],
         token_id_from: str,
         token_id_to: str,
     ) -> List[DEXQuote]:
@@ -597,9 +863,14 @@ class HoudiniSwapClient:
         Side Effects:
             Makes a network request. No local state is modified.
         """
+        # Validate and convert amount
+        amount_str = self._normalize_amount(amount)
+        self._validate_token_id(token_id_from, "token_id_from")
+        self._validate_token_id(token_id_to, "token_id_to")
+        
         # Create fresh params dict for each call (no mutable defaults)
         params = {
-            "amount": amount,
+            "amount": amount_str,
             "tokenIdFrom": token_id_from,
             "tokenIdTo": token_id_to,
         }
@@ -618,13 +889,14 @@ class HoudiniSwapClient:
         if len(response) == 0:
             return []
         
+        # Response already validated as list above
         return [DEXQuote.from_dict(quote_data) for quote_data in response]
     
     # ==================== Exchange Execution APIs ====================
     
     def post_cex_exchange(
         self,
-        amount: float,
+        amount: Union[str, Decimal, float],
         from_token: str,
         to_token: str,
         address_to: str,
@@ -676,8 +948,21 @@ class HoudiniSwapClient:
             Creates a transaction on the Houdini Swap platform. This is a state-changing operation.
             The transaction will be processed asynchronously. Use get_status() to check progress.
         """
+        # Validate inputs
+        self._validate_amount(amount, "amount")
+        self._sanitize_input(from_token, "from_token")
+        self._sanitize_input(to_token, "to_token")
+        self._sanitize_input(address_to, "address_to")
+        
+        # Validate and convert amount
+        amount_decimal = self._normalize_amount_to_decimal(amount)
+        self._validate_amount(float(amount_decimal), "amount")
+        self._sanitize_input(from_token, "from_token")
+        self._sanitize_input(to_token, "to_token")
+        self._sanitize_input(address_to, "address_to")
+        
         json_data = {
-            "amount": amount,
+            "amount": float(amount_decimal),  # API expects number
             "from": from_token,
             "to": to_token,
             "addressTo": address_to,
@@ -702,14 +987,14 @@ class HoudiniSwapClient:
     
     def post_dex_exchange(
         self,
-        amount: float,
+        amount: Union[str, Decimal, float],
         token_id_from: str,
         token_id_to: str,
         address_from: str,
         address_to: str,
         swap: str,
         quote_id: str,
-        route: Dict[str, Any],
+        route: RouteDTO,
     ) -> ExchangeResponse:
         """
         Initiate a DEX exchange transaction.
@@ -749,15 +1034,25 @@ class HoudiniSwapClient:
             The transaction will be processed asynchronously. Use get_status() to check progress.
             May require token approval first (use post_dex_approve).
         """
+        # Validate and convert amount
+        amount_decimal = self._normalize_amount_to_decimal(amount)
+        self._validate_amount(float(amount_decimal), "amount")
+        self._validate_token_id(token_id_from, "token_id_from")
+        self._validate_token_id(token_id_to, "token_id_to")
+        self._sanitize_input(address_from, "address_from")
+        self._sanitize_input(address_to, "address_to")
+        self._sanitize_input(swap, "swap")
+        self._sanitize_input(quote_id, "quote_id")
+        
         json_data = {
-            "amount": amount,
+            "amount": float(amount_decimal),  # API expects number
             "tokenIdFrom": token_id_from,
             "tokenIdTo": token_id_to,
             "addressFrom": address_from,
             "addressTo": address_to,
             "swap": swap,
             "quoteId": quote_id,
-            "route": route,
+            "route": route.to_dict() if isinstance(route, RouteDTO) else route,
         }
         
         response = self._request("POST", ENDPOINT_DEX_EXCHANGE, json_data=json_data)
@@ -770,9 +1065,9 @@ class HoudiniSwapClient:
         token_id_from: str,
         token_id_to: str,
         address_from: str,
-        amount: float,
+        amount: Union[str, Decimal, float],
         swap: str,
-        route: Dict[str, Any],
+        route: RouteDTO,
     ) -> List[DexApproveResponse]:
         """
         Initiate a token approval transaction for DEX exchange.
@@ -808,13 +1103,21 @@ class HoudiniSwapClient:
             Prepares approval transaction data. User must sign and broadcast the transaction
             on the blockchain. This does not automatically approve tokens.
         """
+        # Validate and convert amount
+        amount_decimal = self._normalize_amount_to_decimal(amount)
+        self._validate_amount(float(amount_decimal), "amount")
+        self._validate_token_id(token_id_from, "token_id_from")
+        self._validate_token_id(token_id_to, "token_id_to")
+        self._sanitize_input(address_from, "address_from")
+        self._sanitize_input(swap, "swap")
+        
         json_data = {
             "tokenIdFrom": token_id_from,
             "tokenIdTo": token_id_to,
             "addressFrom": address_from,
-            "amount": amount,
+            "amount": float(amount_decimal),  # API expects number
             "swap": swap,
-            "route": route,
+            "route": route.to_dict() if isinstance(route, RouteDTO) else route,
         }
         
         response = self._request("POST", ENDPOINT_DEX_APPROVE, json_data=json_data)
@@ -831,6 +1134,7 @@ class HoudiniSwapClient:
         if len(response) == 0:
             return []
         
+        # Response already validated as list in _request error handling
         return [DexApproveResponse.from_dict(item) for item in response]
     
     def post_dex_confirm_tx(
@@ -848,6 +1152,10 @@ class HoudiniSwapClient:
         Returns:
             True if confirmation was successful
         """
+        # Validate inputs
+        self._sanitize_input(transaction_id, "transaction_id")
+        self._validate_hex_string(tx_hash, "tx_hash")
+        
         json_data = {
             "id": transaction_id,
             "txHash": tx_hash,
@@ -871,6 +1179,9 @@ class HoudiniSwapClient:
         Returns:
             Status object
         """
+        # Validate inputs
+        self._validate_houdini_id(houdini_id)
+        
         # Create fresh params dict for each call (no mutable defaults)
         params = {"id": houdini_id}
         response = self._request("GET", ENDPOINT_STATUS, params=params)
@@ -898,6 +1209,10 @@ class HoudiniSwapClient:
         Returns:
             MinMax object with min and max amounts
         """
+        # Validate inputs
+        self._sanitize_input(from_token, "from_token")
+        self._sanitize_input(to_token, "to_token")
+        
         # Create fresh params dict for each call (no mutable defaults)
         params = {
             "from": from_token,
@@ -905,7 +1220,7 @@ class HoudiniSwapClient:
             "anonymous": self._bool_to_str(anonymous),
         }
         if cex_only is not None:
-            params["cexOnly"] = self._bool_to_str(cex_only)
+            params["cexOnly"] = cex_only  # Send boolean directly, not string
         
         response = self._request("GET", ENDPOINT_MIN_MAX, params=params)
         return MinMax.from_list(response)
@@ -946,4 +1261,204 @@ class HoudiniSwapClient:
             status_code=None,
             response=response,
         )
+    
+    # ==================== Helper Methods ====================
+    
+    def iter_dex_tokens(
+        self,
+        chain: Optional[str] = None,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ):
+        """
+        Iterator for all DEX tokens across all pages.
+        
+        Args:
+            chain: Optional chain filter (e.g., "base")
+            page_size: Number of tokens per page (default: 100)
+            
+        Yields:
+            DEXToken objects from all pages
+            
+        Example:
+            ```python
+            for token in client.iter_dex_tokens():
+                print(token.name)
+            ```
+        """
+        page = 1
+        while True:
+            response = self.get_dex_tokens(page=page, page_size=page_size, chain=chain)
+            if not response.tokens:
+                break
+            for token in response.tokens:
+                yield token
+            # Check if there are more pages
+            total_pages = (response.count + page_size - 1) // page_size
+            if page >= total_pages:
+                break
+            page += 1
+    
+    def get_all_dex_tokens(
+        self,
+        chain: Optional[str] = None,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> List[DEXToken]:
+        """
+        Get all DEX tokens across all pages (convenience method).
+        
+        Args:
+            chain: Optional chain filter (e.g., "base")
+            page_size: Number of tokens per page (default: 100)
+            
+        Returns:
+            List of all DEXToken objects
+            
+        Note:
+            This loads all tokens into memory. For large token lists, use
+            `iter_dex_tokens()` instead for memory efficiency.
+        """
+        return list(self.iter_dex_tokens(chain=chain, page_size=page_size))
+    
+    def wait_for_status(
+        self,
+        houdini_id: str,
+        target_status: TransactionStatus,
+        timeout: int = 300,
+        poll_interval: int = 5,
+    ) -> Status:
+        """
+        Poll until transaction reaches target status.
+        
+        Args:
+            houdini_id: Unique ID of the transaction
+            target_status: Status to wait for
+            timeout: Maximum time to wait in seconds (default: 300 = 5 minutes)
+            poll_interval: Time between polls in seconds (default: 5)
+            
+        Returns:
+            Status object when target status is reached
+            
+        Raises:
+            TimeoutError: If timeout is reached before target status
+            APIError: If API returns an error
+        """
+        import time
+        start_time = time.time()
+        
+        while True:
+            status = self.get_status(houdini_id)
+            if status.status == target_status:
+                return status
+            
+            if time.time() - start_time > timeout:
+                raise TimeoutError(
+                    f"Timeout waiting for status {target_status.name}. "
+                    f"Current status: {status.status.name}"
+                )
+            
+            time.sleep(poll_interval)
+    
+    def poll_until_finished(
+        self,
+        houdini_id: str,
+        timeout: int = 600,
+        poll_interval: int = 5,
+    ) -> Status:
+        """
+        Poll until transaction is finished (FINISHED, FAILED, EXPIRED, or REFUNDED).
+        
+        Args:
+            houdini_id: Unique ID of the transaction
+            timeout: Maximum time to wait in seconds (default: 600 = 10 minutes)
+            poll_interval: Time between polls in seconds (default: 5)
+            
+        Returns:
+            Final Status object
+            
+        Raises:
+            TimeoutError: If timeout is reached
+            APIError: If API returns an error
+        """
+        import time
+        start_time = time.time()
+        
+        final_statuses = {
+            TransactionStatus.FINISHED,
+            TransactionStatus.FAILED,
+            TransactionStatus.EXPIRED,
+            TransactionStatus.REFUNDED,
+        }
+        
+        while True:
+            status = self.get_status(houdini_id)
+            if status.status in final_statuses:
+                return status
+            
+            if time.time() - start_time > timeout:
+                raise TimeoutError(
+                    f"Timeout waiting for transaction to finish. "
+                    f"Current status: {status.status.name}"
+                )
+            
+            time.sleep(poll_interval)
+    
+    def execute_parallel(
+        self,
+        requests: List[Callable[[], Any]],
+        max_workers: int = 5,
+    ) -> List[Any]:
+        """
+        Execute multiple API requests in parallel.
+        
+        Args:
+            requests: List of callables that return API results
+            max_workers: Maximum number of parallel workers (default: 5)
+            
+        Returns:
+            List of results in the same order as requests
+            
+        Example:
+            ```python
+            results = client.execute_parallel([
+                lambda: client.get_cex_tokens(),
+                lambda: client.get_status("id1"),
+                lambda: client.get_status("id2"),
+            ])
+            ```
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        results = [None] * len(requests)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_index = {
+                executor.submit(req): i for i, req in enumerate(requests)
+            }
+            for future in as_completed(future_to_index):
+                index = future_to_index[future]
+                try:
+                    results[index] = future.result()
+                except Exception as e:
+                    results[index] = e
+        return results
+    
+    def exchange_builder(self) -> "ExchangeBuilder":
+        """
+        Create a new exchange builder for constructing exchange requests.
+        
+        Returns:
+            ExchangeBuilder instance
+            
+        Example:
+            ```python
+            exchange = client.exchange_builder() \
+                .cex() \
+                .amount(1.0) \
+                .from_token("ETH") \
+                .to_token("BNB") \
+                .address_to("0x...") \
+                .anonymous(True) \
+                .execute()
+            ```
+        """
+        from .builder import ExchangeBuilder
+        return ExchangeBuilder(self)
 
