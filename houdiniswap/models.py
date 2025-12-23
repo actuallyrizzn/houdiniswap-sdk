@@ -4,8 +4,14 @@ from typing import Optional, List, Dict, Any, Union
 from dataclasses import dataclass
 from enum import IntEnum
 from decimal import Decimal
+import hashlib
+import json
 
 from .exceptions import ValidationError
+
+# Module-level caches for immutable models to optimize parsing
+_network_cache: Dict[str, "Network"] = {}
+_token_cache: Dict[str, "Token"] = {}
 
 
 class TransactionStatus(IntEnum):
@@ -38,7 +44,7 @@ class Network:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Network":
-        """Create Network from API response."""
+        """Create Network from API response with caching for optimization."""
         if not isinstance(data, dict):
             raise ValidationError(f"Expected dict for Network, got {type(data).__name__}")
         
@@ -48,7 +54,15 @@ class Network:
         if missing_fields:
             raise ValidationError(f"Missing required fields for Network: {', '.join(missing_fields)}")
         
-        return cls(
+        # Create cache key from sorted data (for consistent hashing)
+        cache_key = hashlib.md5(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        
+        # Check cache first
+        if cache_key in _network_cache:
+            return _network_cache[cache_key]
+        
+        # Create new instance
+        network = cls(
             name=data.get("name", ""),
             short_name=data.get("shortName", ""),
             address_validation=data.get("addressValidation", ""),
@@ -60,6 +74,10 @@ class Network:
             chain_id=data.get("chainId"),
             icon=data.get("icon"),
         )
+        
+        # Cache it
+        _network_cache[cache_key] = network
+        return network
     
     def __repr__(self) -> str:
         return f"Network(name='{self.name}', short_name='{self.short_name}')"
@@ -85,7 +103,7 @@ class Token:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Token":
-        """Create Token from API response."""
+        """Create Token from API response with caching for optimization."""
         if not isinstance(data, dict):
             raise ValidationError(f"Expected dict for Token, got {type(data).__name__}")
         
@@ -95,9 +113,17 @@ class Token:
         if missing_fields:
             raise ValidationError(f"Missing required fields for Token: {', '.join(missing_fields)}")
         
+        # Create cache key from token ID (most unique identifier)
+        token_id = data.get("id", "")
+        cache_key = f"token_{token_id}"
+        
+        # Check cache first
+        if cache_key in _token_cache:
+            return _token_cache[cache_key]
+        
         network_data = data.get("network", {})
         if network_data:
-            network = Network.from_dict(network_data)
+            network = Network.from_dict(network_data)  # This will also use cache
         else:
             # Create a minimal network if not provided
             network = Network(
@@ -107,8 +133,9 @@ class Token:
                 memo_needed=False,
             )
         
-        return cls(
-            id=data.get("id", ""),
+        # Create new instance
+        token = cls(
+            id=token_id,
             name=data.get("name", ""),
             symbol=data.get("symbol", ""),
             network=network,
@@ -123,6 +150,10 @@ class Token:
             has_fixed=data.get("hasFixed"),
             has_fixed_reverse=data.get("hasFixedReverse"),
         )
+        
+        # Cache it
+        _token_cache[cache_key] = token
+        return token
     
     def __repr__(self) -> str:
         return f"Token(symbol='{self.symbol}', name='{self.name}', id='{self.id}')"
