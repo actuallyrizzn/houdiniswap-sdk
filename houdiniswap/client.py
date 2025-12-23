@@ -920,4 +920,64 @@ class HoudiniSwapClient:
                 )
             
             time.sleep(poll_interval)
+    
+    def execute_parallel(
+        self,
+        requests: List[Callable[[], Any]],
+        max_workers: int = 5,
+    ) -> List[Any]:
+        """
+        Execute multiple API requests in parallel.
+        
+        Args:
+            requests: List of callables that return API results
+            max_workers: Maximum number of parallel workers (default: 5)
+            
+        Returns:
+            List of results in the same order as requests
+            
+        Example:
+            ```python
+            results = client.execute_parallel([
+                lambda: client.get_cex_tokens(),
+                lambda: client.get_status("id1"),
+                lambda: client.get_status("id2"),
+            ])
+            ```
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        results = [None] * len(requests)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_index = {
+                executor.submit(req): i for i, req in enumerate(requests)
+            }
+            for future in as_completed(future_to_index):
+                index = future_to_index[future]
+                try:
+                    results[index] = future.result()
+                except Exception as e:
+                    results[index] = e
+        return results
+    
+    def exchange_builder(self) -> "ExchangeBuilder":
+        """
+        Create a new exchange builder for constructing exchange requests.
+        
+        Returns:
+            ExchangeBuilder instance
+            
+        Example:
+            ```python
+            exchange = client.exchange_builder() \
+                .cex() \
+                .amount(1.0) \
+                .from_token("ETH") \
+                .to_token("BNB") \
+                .address_to("0x...") \
+                .anonymous(True) \
+                .execute()
+            ```
+        """
+        from .builder import ExchangeBuilder
+        return ExchangeBuilder(self)
 
